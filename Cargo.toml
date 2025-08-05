@@ -12,3 +12,7 @@ winapi = { version = "0.3", features = [
     "windef"
 ] }
 ctrlc = "3.4"
+
+[[bin]]
+name = "ccaps"
+path = "src/main.rs"
