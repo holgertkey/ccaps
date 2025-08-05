@@ -19,6 +19,7 @@ fn main() {
         // Show current layout info
         let (layout_name, is_english) = layout_indicator::get_current_layout_info();
         println!("Current layout: {} (English: {})", layout_name, is_english);
+        println!("Setting Scroll Lock to: {}", if is_english { "OFF" } else { "ON" });
         
         // Set initial Scroll Lock state based on current layout
         layout_indicator::update_layout_indicator();
@@ -54,8 +55,6 @@ fn main() {
         uninstall_hook();
     }
 }
-
-
 
 
 

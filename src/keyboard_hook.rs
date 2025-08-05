@@ -3,7 +3,7 @@ use std::mem;
 use winapi::um::winuser::*;
 use winapi::um::libloaderapi::GetModuleHandleW;
 use winapi::shared::minwindef::*;
-use winapi::shared::windef::*;
+use winapi::shared::windef::HHOOK;
 use crate::layout_indicator;
 
 // Global variable to store the hook
@@ -94,8 +94,9 @@ unsafe fn switch_keyboard_layout() {
                 next_layout as LPARAM,
             );
             
-            // Update Scroll Lock indicator after layout change
-            layout_indicator::update_layout_indicator();
+            // Update Scroll Lock indicator with the known next layout
+            // Instead of checking current layout, use the layout we're switching to
+            layout_indicator::update_layout_indicator_with_layout(next_layout as HKL);
         }
     }
 }
