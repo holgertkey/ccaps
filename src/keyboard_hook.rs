@@ -4,6 +4,7 @@ use winapi::um::winuser::*;
 use winapi::um::libloaderapi::GetModuleHandleW;
 use winapi::shared::minwindef::*;
 use winapi::shared::windef::*;
+use crate::layout_indicator;
 
 // Global variable to store the hook
 static mut HOOK: HHOOK = ptr::null_mut();
@@ -92,6 +93,9 @@ unsafe fn switch_keyboard_layout() {
                 0,
                 next_layout as LPARAM,
             );
+            
+            // Update Scroll Lock indicator after layout change
+            layout_indicator::update_layout_indicator();
         }
     }
 }

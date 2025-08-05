@@ -1,4 +1,5 @@
 mod keyboard_hook;
+mod layout_indicator;
 
 use std::ptr;
 use std::mem;
@@ -9,9 +10,19 @@ fn main() {
     println!("Caps Lock Layout Switcher started!");
     println!("Caps Lock - switch keyboard layout");
     println!("Alt + Caps Lock - toggle Caps Lock");
+    println!("Scroll Lock indicator shows current layout:");
+    println!("  OFF = English layout");
+    println!("  ON  = Non-English layout");
     println!("Press Ctrl+C to exit");
     
     unsafe {
+        // Show current layout info
+        let (layout_name, is_english) = layout_indicator::get_current_layout_info();
+        println!("Current layout: {} (English: {})", layout_name, is_english);
+        
+        // Set initial Scroll Lock state based on current layout
+        layout_indicator::update_layout_indicator();
+        
         // Install the hook
         match install_hook() {
             Ok(()) => println!("Hook installed successfully"),
@@ -43,8 +54,6 @@ fn main() {
         uninstall_hook();
     }
 }
-
-
 
 
 
