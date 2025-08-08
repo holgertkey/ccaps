@@ -1,7 +1,7 @@
 [package]
 name = "ccaps"
-version = "0.2.0"
-edition = "2024"
+version = "0.3.0"
+edition = "2021"
 
 [dependencies]
 winapi = { version = "0.3", features = [
@@ -9,7 +9,14 @@ winapi = { version = "0.3", features = [
     "libloaderapi", 
     "processthreadsapi",
     "minwindef",
-    "windef"
+    "windef",
+    "winreg",
+    "handleapi",
+    "winerror",
+    "wincon",
+    "synchapi",
+    "errhandlingapi",
+    "winnt"
 ] }
 ctrlc = "3.4"
 
