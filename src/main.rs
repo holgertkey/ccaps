@@ -9,9 +9,10 @@ use std::os::windows::ffi::OsStrExt;
 use std::sync::atomic::{AtomicPtr, Ordering};
 use winapi::um::winuser::*;
 use winapi::um::handleapi::CloseHandle;
-use winapi::um::wincon::GetConsoleWindow;
+use winapi::um::wincon::*;
 use winapi::um::errhandlingapi::GetLastError;
-use winapi::um::winnt::HANDLE;
+use winapi::shared::minwindef::*;
+use winapi::shared::windef::*;
 use keyboard_hook::{install_hook, uninstall_hook};
 use cli::{parse_args, execute_command, CliCommand, create_mutex, should_run_in_background};
 
@@ -55,13 +56,9 @@ fn main() {
     let is_background = should_run_in_background();
     
     if is_background {
-        println!("Starting in background mode...");
-        // Hide console window in background mode
+        // Отвязываемся от родительского процесса в фоновом режиме
         unsafe {
-            let console_window = GetConsoleWindow();
-            if !console_window.is_null() {
-                ShowWindow(console_window, SW_HIDE);
-            }
+            detach_from_console();
         }
     } else {
         // Show startup message in foreground mode
@@ -75,7 +72,7 @@ fn main() {
     }
     
     unsafe {
-        // Show current layout info
+        // Show current layout info only in foreground mode
         let (layout_name, is_english) = layout_indicator::get_current_layout_info();
         if !is_background {
             println!("Current layout: {} (English: {})", layout_name, is_english);
@@ -93,25 +90,25 @@ fn main() {
                 }
             },
             Err(e) => {
-                eprintln!("Hook installation error: {}", e);
+                if !is_background {
+                    eprintln!("Hook installation error: {}", e);
+                }
                 cleanup_and_exit();
                 return;
             }
         }
         
-        // Ctrl+C handler for proper shutdown
-        ctrlc::set_handler(move || {
-            if !should_run_in_background() {
+        // Ctrl+C handler for proper shutdown (только для foreground режима)
+        if !is_background {
+            ctrlc::set_handler(move || {
                 println!("\nShutting down...");
-            }
-            cleanup_and_exit();
-            std::process::exit(0);
-        }).expect("Error setting Ctrl+C handler");
-        
-        // Create hidden window for background mode to receive messages
-        if is_background {
-            create_message_window();
+                cleanup_and_exit();
+                std::process::exit(0);
+            }).expect("Error setting Ctrl+C handler");
         }
+        
+        // Create hidden window for message handling
+        create_message_window();
         
         // Main message processing loop
         let mut msg: MSG = mem::zeroed();
@@ -121,8 +118,14 @@ fn main() {
                 break;
             }
             
-            // Handle quit message in background mode
-            if is_background && msg.message == WM_QUIT {
+            // Handle quit message
+            if msg.message == WM_QUIT {
+                break;
+            }
+            
+            // Handle other system messages
+            if msg.message == WM_QUERYENDSESSION || msg.message == WM_ENDSESSION {
+                // System shutdown - cleanup and exit gracefully
                 break;
             }
             
@@ -133,6 +136,18 @@ fn main() {
         // Cleanup
         cleanup_and_exit();
     }
+}
+
+// Упрощенная функция для отвязки от консоли
+unsafe fn detach_from_console() {
+    // Скрываем консольное окно
+    let console_window = GetConsoleWindow();
+    if !console_window.is_null() {
+        ShowWindow(console_window, SW_HIDE);
+    }
+    
+    // Отвязываемся от консоли родительского процесса
+    FreeConsole();
 }
 
 // Helper function to cleanup resources
@@ -146,7 +161,7 @@ fn cleanup_and_exit() {
     }
 }
 
-// Create a hidden window for receiving messages in background mode
+// Улучшенная функция создания скрытого окна
 unsafe fn create_message_window() {
     use winapi::um::libloaderapi::GetModuleHandleW;
     
@@ -156,10 +171,31 @@ unsafe fn create_message_window() {
     let window_name = "CCaps Layout Switcher\0";
     let window_name_wide: Vec<u16> = OsString::from(window_name).encode_wide().collect();
     
+    // Кастомная процедура окна для обработки системных сообщений
+    unsafe extern "system" fn window_proc(
+        hwnd: HWND,
+        msg: UINT,
+        wparam: WPARAM,
+        lparam: LPARAM,
+    ) -> LRESULT {
+        match msg {
+            WM_QUERYENDSESSION | WM_ENDSESSION => {
+                // Система завершается - выходим корректно
+                PostQuitMessage(0);
+                return 0;
+            }
+            WM_DESTROY => {
+                PostQuitMessage(0);
+                return 0;
+            }
+            _ => return DefWindowProcW(hwnd, msg, wparam, lparam),
+        }
+    }
+    
     // Register window class
     let wc = WNDCLASSW {
         style: 0,
-        lpfnWndProc: Some(DefWindowProcW),
+        lpfnWndProc: Some(window_proc),
         cbClsExtra: 0,
         cbWndExtra: 0,
         hInstance: GetModuleHandleW(ptr::null()),
@@ -173,18 +209,33 @@ unsafe fn create_message_window() {
     RegisterClassW(&wc);
     
     // Create hidden window
-    CreateWindowExW(
+    let hwnd = CreateWindowExW(
         0,
         class_name_wide.as_ptr(),
         window_name_wide.as_ptr(),
-        WS_OVERLAPPEDWINDOW,
-        CW_USEDEFAULT,
-        CW_USEDEFAULT,
-        CW_USEDEFAULT,
-        CW_USEDEFAULT,
-        ptr::null_mut(),
+        0, // No window style (completely hidden)
+        0, 0, 0, 0, // Position and size (irrelevant for hidden window)
+        HWND_MESSAGE, // Message-only window (не отображается в UI)
         ptr::null_mut(),
         GetModuleHandleW(ptr::null()),
         ptr::null_mut(),
     );
+    
+    if hwnd.is_null() {
+        // Fallback: попробуем создать обычное скрытое окно
+        CreateWindowExW(
+            0,
+            class_name_wide.as_ptr(),
+            window_name_wide.as_ptr(),
+            WS_OVERLAPPEDWINDOW,
+            CW_USEDEFAULT,
+            CW_USEDEFAULT,
+            CW_USEDEFAULT,
+            CW_USEDEFAULT,
+            ptr::null_mut(),
+            ptr::null_mut(),
+            GetModuleHandleW(ptr::null()),
+            ptr::null_mut(),
+        );
+    }
 }

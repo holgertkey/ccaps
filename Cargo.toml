@@ -16,9 +16,20 @@ winapi = { version = "0.3", features = [
     "wincon",
     "synchapi",
     "errhandlingapi",
-    "winnt"
+    "winnt",
+    "winbase",
+    "shellapi",
+    "fileapi"
 ] }
 ctrlc = "3.4"
+
+# Оптимизации для релизной сборки
+[profile.release]
+opt-level = "s"  # Оптимизация по размеру
+lto = true       # Link Time Optimization
+codegen-units = 1
+panic = "abort"  # Убираем unwinding для меньшего размера
+strip = true     # Убираем отладочную информацию
 
 [[bin]]
 name = "ccaps"

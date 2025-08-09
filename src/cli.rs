@@ -76,7 +76,7 @@ fn handle_start() -> i32 {
         println!("Added to system startup.");
     }
     
-    // Start in background (detached process)
+    // Start in background (completely detached process)
     if let Err(e) = start_background_process() {
         eprintln!("Failed to start background process: {}", e);
         return 1;
@@ -119,7 +119,7 @@ fn handle_exit() -> i32 {
 }
 
 fn show_help() {
-    println!("CCaps Layout Switcher v0.2.0");
+    println!("CCaps Layout Switcher v0.3.0");
     println!("Keyboard layout switcher using Caps Lock key");
     println!();
     println!("Usage:");
@@ -182,7 +182,7 @@ fn add_to_startup() -> Result<(), String> {
         // Get current executable path
         let exe_path = env::current_exe()
             .map_err(|_| "Failed to get executable path")?;
-        let exe_path_str = format!("\"{}\" -start\0", exe_path.display());
+        let exe_path_str = format!("\"{}\" --background\0", exe_path.display());
         let exe_path_wide: Vec<u16> = OsString::from(exe_path_str)
             .encode_wide()
             .collect();
@@ -245,21 +245,36 @@ fn remove_from_startup() -> Result<(), String> {
     }
 }
 
+// Упрощенная функция создания отвязанного процесса через std::process
 fn start_background_process() -> Result<(), String> {
     use std::process::Command;
     
     let exe_path = env::current_exe()
         .map_err(|_| "Failed to get executable path")?;
     
-    // Start new process detached
+    // Простой запуск без дополнительных флагов
     match Command::new(&exe_path)
         .arg("--background")
         .spawn()
     {
-        Ok(_) => Ok(()),
+        Ok(child) => {
+            // Получаем PID дочернего процесса
+            let _pid = child.id();
+            
+            // Отвязываем дочерний процесс - не ждем его завершения
+            std::mem::forget(child);
+            Ok(())
+        },
         Err(e) => Err(format!("Failed to start process: {}", e)),
     }
 }
+
+// Альтернативная функция для создания демон-процесса через службу
+// fn start_as_windows_service() -> Result<(), String> {
+//     // Для более продвинутой реализации можно использовать Windows Service API
+//     // Но для простого случая достаточно CREATE_NEW_CONSOLE | DETACHED_PROCESS
+//     start_detached_process()
+// }
 
 fn stop_background_process() -> bool {
     // Send quit message to running instance
@@ -290,5 +305,5 @@ pub fn create_mutex() -> HANDLE {
 
 pub fn should_run_in_background() -> bool {
     let args: Vec<String> = env::args().collect();
-    args.len() > 1 && (args[1] == "--background" || args[1] == "-start")
+    args.len() > 1 && (args[1] == "--background")
 }
