@@ -19,6 +19,7 @@ pub enum CliCommand {
     Start,
     Stop,
     Exit,
+    Status,
     Run, // Default run mode (no parameters)
     Background, // Internal command for background process
     Help,
@@ -36,6 +37,7 @@ pub fn parse_args() -> CliCommand {
         "-start" => CliCommand::Start,
         "-stop" => CliCommand::Stop,
         "-exit" => CliCommand::Exit,
+        "-status" => CliCommand::Status,
         "--background" => CliCommand::Background,
         "-help" | "--help" | "/?" => CliCommand::Help,
         _ => CliCommand::Unknown(args[1].clone()),
@@ -47,6 +49,7 @@ pub fn execute_command(command: CliCommand) -> i32 {
         CliCommand::Start => handle_start(),
         CliCommand::Stop => handle_stop(),
         CliCommand::Exit => handle_exit(),
+        CliCommand::Status => handle_status(),
         CliCommand::Background => handle_background(),
         CliCommand::Run => 0, // Continue normal execution
         CliCommand::Help => {
@@ -72,6 +75,47 @@ fn handle_background() -> i32 {
     }
     
     // Продолжаем нормальное выполнение (не завершаем программу)
+    0
+}
+
+fn handle_status() -> i32 {
+    println!("CCaps Layout Switcher Status:");
+    println!("═══════════════════════════════");
+    
+    // Check if running in background
+    let is_running = is_already_running();
+    println!("Background process: {}", if is_running { "RUNNING ✓" } else { "NOT RUNNING ✗" });
+    
+    // Check startup entry
+    let in_startup = is_in_startup();
+    println!("Auto-startup:       {}", if in_startup { "ENABLED ✓" } else { "DISABLED ✗" });
+    
+    // Show startup path if enabled
+    if in_startup {
+        if let Ok(startup_path) = get_startup_path() {
+            println!("Startup command:    {}", startup_path);
+        }
+    }
+    
+    println!();
+    
+    // Show recommendations
+    match (is_running, in_startup) {
+        (true, true) => println!("Status: All systems operational ✓"),
+        (true, false) => {
+            println!("Status: Running but not in auto-startup");
+            println!("Recommendation: Run 'ccaps -start' to enable auto-startup");
+        },
+        (false, true) => {
+            println!("Status: Auto-startup enabled but not currently running");
+            println!("Recommendation: Run 'ccaps -start' to start background process");
+        },
+        (false, false) => {
+            println!("Status: Not running and auto-startup disabled");
+            println!("Recommendation: Run 'ccaps -start' to start and enable auto-startup");
+        }
+    }
+    
     0
 }
 
@@ -142,6 +186,7 @@ fn show_help() {
     println!("  ccaps -start   - Start in background and add to system startup");
     println!("  ccaps -stop    - Stop background process and remove from startup");
     println!("  ccaps -exit    - Stop background process only");
+    println!("  ccaps -status  - Show current status");
     println!("  ccaps -help    - Show this help");
     println!();
     println!("Key bindings:");
@@ -213,6 +258,73 @@ fn is_in_startup() -> bool {
         RegCloseKey(key);
         
         result == ERROR_SUCCESS as i32 && value_type == REG_SZ && data_size > 0
+    }
+}
+
+fn get_startup_path() -> Result<String, String> {
+    unsafe {
+        let mut key: HKEY = ptr::null_mut();
+        let key_name = format!("{}\0", REGISTRY_KEY);
+        let key_name_wide: Vec<u16> = OsString::from(key_name)
+            .encode_wide()
+            .collect();
+        
+        let result = RegOpenKeyExW(
+            HKEY_CURRENT_USER,
+            key_name_wide.as_ptr(),
+            0,
+            KEY_QUERY_VALUE,
+            &mut key,
+        );
+        
+        if result != ERROR_SUCCESS as i32 {
+            return Err("Failed to open registry key".to_string());
+        }
+        
+        let app_name_wide: Vec<u16> = OsString::from(format!("{}\0", APP_NAME))
+            .encode_wide()
+            .collect();
+        
+        let mut value_type: DWORD = 0;
+        let mut data_size: DWORD = 0;
+        
+        // First call to get size
+        let result = RegQueryValueExW(
+            key,
+            app_name_wide.as_ptr(),
+            ptr::null_mut(),
+            &mut value_type,
+            ptr::null_mut(),
+            &mut data_size,
+        );
+        
+        if result != ERROR_SUCCESS as i32 {
+            RegCloseKey(key);
+            return Err("Failed to query registry value size".to_string());
+        }
+        
+        // Allocate buffer and get actual value
+        let mut buffer: Vec<u16> = vec![0; (data_size / 2) as usize];
+        let result = RegQueryValueExW(
+            key,
+            app_name_wide.as_ptr(),
+            ptr::null_mut(),
+            &mut value_type,
+            buffer.as_mut_ptr() as *mut u8,
+            &mut data_size,
+        );
+        
+        RegCloseKey(key);
+        
+        if result == ERROR_SUCCESS as i32 && value_type == REG_SZ {
+            // Convert wide string to String, removing null terminator
+            let end_pos = buffer.iter().position(|&x| x == 0).unwrap_or(buffer.len());
+            let path = String::from_utf16(&buffer[..end_pos])
+                .map_err(|_| "Failed to convert path to string")?;
+            Ok(path)
+        } else {
+            Err("Failed to read registry value".to_string())
+        }
     }
 }
 
@@ -302,7 +414,6 @@ fn remove_from_startup() -> Result<(), String> {
     }
 }
 
-// Упрощенная функция создания отвязанного процесса через std::process
 fn start_background_process() -> Result<(), String> {
     use std::process::Command;
     

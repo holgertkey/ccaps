@@ -25,7 +25,7 @@ fn main() {
     
     // Handle CLI commands that don't require running the main loop
     match command {
-        CliCommand::Start | CliCommand::Stop | CliCommand::Exit | CliCommand::Help | CliCommand::Unknown(_) => {
+        CliCommand::Start | CliCommand::Stop | CliCommand::Exit | CliCommand::Status | CliCommand::Help | CliCommand::Unknown(_) => {
             let exit_code = execute_command(command);
             std::process::exit(exit_code);
         }
