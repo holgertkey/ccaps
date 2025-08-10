@@ -23,13 +23,13 @@ winapi = { version = "0.3", features = [
 ] }
 ctrlc = "3.4"
 
-# Оптимизации для релизной сборки
+# Optimizations for release build
 [profile.release]
-opt-level = "s"  # Оптимизация по размеру
+opt-level = "s"  # Size optimization
 lto = true       # Link Time Optimization
 codegen-units = 1
-panic = "abort"  # Убираем unwinding для меньшего размера
-strip = true     # Убираем отладочную информацию
+panic = "abort"  # Remove unwinding for smaller size
+strip = true     # Remove debug information
 
 [[bin]]
 name = "ccaps"

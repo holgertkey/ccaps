@@ -63,7 +63,7 @@ fn main() {
     let is_background = should_run_in_background();
     
     if is_background {
-        // Отвязываемся от родительского процесса в фоновом режиме
+        // Detaching from the parent process in the background
         unsafe {
             detach_from_console();
         }
@@ -145,15 +145,15 @@ fn main() {
     }
 }
 
-// Упрощенная функция для отвязки от консоли
+// Simplified function to detach from console
 unsafe fn detach_from_console() {
-    // Скрываем консольное окно
+    // Hiding the console window
     let console_window = GetConsoleWindow();
     if !console_window.is_null() {
         ShowWindow(console_window, SW_HIDE);
     }
     
-    // Отвязываемся от консоли родительского процесса
+    // Unbind from the parent process console
     FreeConsole();
 }
 
@@ -168,7 +168,7 @@ fn cleanup_and_exit() {
     }
 }
 
-// Улучшенная функция создания скрытого окна
+// Improved hidden window creation function
 unsafe fn create_message_window() {
     use winapi::um::libloaderapi::GetModuleHandleW;
     
@@ -178,7 +178,7 @@ unsafe fn create_message_window() {
     let window_name = "CCaps Layout Switcher\0";
     let window_name_wide: Vec<u16> = OsString::from(window_name).encode_wide().collect();
     
-    // Кастомная процедура окна для обработки системных сообщений
+    // Custom window procedure for handling system messages
     unsafe extern "system" fn window_proc(
         hwnd: HWND,
         msg: UINT,
@@ -187,7 +187,7 @@ unsafe fn create_message_window() {
     ) -> LRESULT {
         match msg {
             WM_QUERYENDSESSION | WM_ENDSESSION => {
-                // Система завершается - выходим корректно
+                // System shutdown - cleanup and exit gracefully
                 PostQuitMessage(0);
                 return 0;
             }
@@ -222,14 +222,14 @@ unsafe fn create_message_window() {
         window_name_wide.as_ptr(),
         0, // No window style (completely hidden)
         0, 0, 0, 0, // Position and size (irrelevant for hidden window)
-        HWND_MESSAGE, // Message-only window (не отображается в UI)
+        HWND_MESSAGE, // Message-only window (not displayed in UI)
         ptr::null_mut(),
         GetModuleHandleW(ptr::null()),
         ptr::null_mut(),
     );
     
     if hwnd.is_null() {
-        // Fallback: попробуем создать обычное скрытое окно
+        // Fallback: try to create a regular hidden window
         CreateWindowExW(
             0,
             class_name_wide.as_ptr(),

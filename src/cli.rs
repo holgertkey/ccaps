@@ -65,16 +65,16 @@ pub fn execute_command(command: CliCommand) -> i32 {
 }
 
 fn handle_background() -> i32 {
-    // При запуске в фоновом режиме только проверяем автозагрузку
-    // но не устанавливаем её заново
+    // When running in the background, we only check autoload
+    // but we don't install it again
     if !is_in_startup() {
-        // Если по какой-то причине автозагрузка отсутствует, добавляем её
+        // If for some reason the autoload is missing, we add it
         if let Err(e) = add_to_startup() {
             eprintln!("Warning: Could not ensure startup entry: {}", e);
         }
     }
     
-    // Продолжаем нормальное выполнение (не завершаем программу)
+    // Continue normal execution (do not terminate the program)
     0
 }
 
@@ -419,17 +419,17 @@ fn start_background_process() -> Result<(), String> {
     
     let exe_path = env::current_exe()
         .map_err(|_| "Failed to get executable path")?;
-    
-    // Простой запуск без дополнительных флагов
+
+    // Simple launch without additional flags
     match Command::new(&exe_path)
         .arg("--background")
         .spawn()
     {
         Ok(child) => {
-            // Получаем PID дочернего процесса
+            // Get the PID of the child process
             let _pid = child.id();
             
-            // Отвязываем дочерний процесс - не ждем его завершения
+            // Unbind the child process - don't wait for it to complete
             std::mem::forget(child);
             Ok(())
         },
