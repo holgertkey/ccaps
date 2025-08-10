@@ -7,7 +7,7 @@ use winapi::um::winreg::*;
 use winapi::um::handleapi::CloseHandle;
 use winapi::um::synchapi::CreateMutexW;
 use winapi::um::errhandlingapi::GetLastError;
-use winapi::um::winnt::{KEY_SET_VALUE, REG_SZ, HANDLE};
+use winapi::um::winnt::{KEY_SET_VALUE, KEY_QUERY_VALUE, REG_SZ, HANDLE};
 use winapi::shared::minwindef::*;
 use winapi::shared::winerror::*;
 
@@ -47,7 +47,8 @@ pub fn execute_command(command: CliCommand) -> i32 {
         CliCommand::Start => handle_start(),
         CliCommand::Stop => handle_stop(),
         CliCommand::Exit => handle_exit(),
-        CliCommand::Background | CliCommand::Run => 0, // Continue normal execution
+        CliCommand::Background => handle_background(),
+        CliCommand::Run => 0, // Continue normal execution
         CliCommand::Help => {
             show_help();
             0
@@ -58,6 +59,20 @@ pub fn execute_command(command: CliCommand) -> i32 {
             1
         }
     }
+}
+
+fn handle_background() -> i32 {
+    // При запуске в фоновом режиме только проверяем автозагрузку
+    // но не устанавливаем её заново
+    if !is_in_startup() {
+        // Если по какой-то причине автозагрузка отсутствует, добавляем её
+        if let Err(e) = add_to_startup() {
+            eprintln!("Warning: Could not ensure startup entry: {}", e);
+        }
+    }
+    
+    // Продолжаем нормальное выполнение (не завершаем программу)
+    0
 }
 
 fn handle_start() -> i32 {
@@ -156,6 +171,48 @@ fn is_already_running() -> bool {
         CloseHandle(mutex);
         
         error == ERROR_ALREADY_EXISTS
+    }
+}
+
+fn is_in_startup() -> bool {
+    unsafe {
+        let mut key: HKEY = ptr::null_mut();
+        let key_name = format!("{}\0", REGISTRY_KEY);
+        let key_name_wide: Vec<u16> = OsString::from(key_name)
+            .encode_wide()
+            .collect();
+        
+        let result = RegOpenKeyExW(
+            HKEY_CURRENT_USER,
+            key_name_wide.as_ptr(),
+            0,
+            KEY_QUERY_VALUE,
+            &mut key,
+        );
+        
+        if result != ERROR_SUCCESS as i32 {
+            return false;
+        }
+        
+        let app_name_wide: Vec<u16> = OsString::from(format!("{}\0", APP_NAME))
+            .encode_wide()
+            .collect();
+        
+        let mut value_type: DWORD = 0;
+        let mut data_size: DWORD = 0;
+        
+        let result = RegQueryValueExW(
+            key,
+            app_name_wide.as_ptr(),
+            ptr::null_mut(),
+            &mut value_type,
+            ptr::null_mut(),
+            &mut data_size,
+        );
+        
+        RegCloseKey(key);
+        
+        result == ERROR_SUCCESS as i32 && value_type == REG_SZ && data_size > 0
     }
 }
 
@@ -268,13 +325,6 @@ fn start_background_process() -> Result<(), String> {
         Err(e) => Err(format!("Failed to start process: {}", e)),
     }
 }
-
-// Альтернативная функция для создания демон-процесса через службу
-// fn start_as_windows_service() -> Result<(), String> {
-//     // Для более продвинутой реализации можно использовать Windows Service API
-//     // Но для простого случая достаточно CREATE_NEW_CONSOLE | DETACHED_PROCESS
-//     start_detached_process()
-// }
 
 fn stop_background_process() -> bool {
     // Send quit message to running instance

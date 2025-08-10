@@ -29,7 +29,12 @@ fn main() {
             let exit_code = execute_command(command);
             std::process::exit(exit_code);
         }
-        CliCommand::Run | CliCommand::Background => {
+        CliCommand::Background => {
+            // Execute background-specific logic but continue execution
+            execute_command(command);
+            // Continue with normal execution after background setup
+        }
+        CliCommand::Run => {
             // Continue with normal execution
         }
     }
@@ -47,7 +52,9 @@ fn main() {
     // Check if another instance is already running
     unsafe {
         if GetLastError() == winapi::shared::winerror::ERROR_ALREADY_EXISTS {
-            println!("The program is already running in the background.");
+            if !should_run_in_background() {
+                println!("The program is already running in the background.");
+            }
             CloseHandle(mutex);
             return;
         }
