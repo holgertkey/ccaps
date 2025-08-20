@@ -2,15 +2,7 @@ use std::io::{self, Write};
 use crate::cli::{execute_command, CliCommand};
 
 pub fn show_interactive_menu() -> i32 {
-    // Set up Ctrl+C handler for menu only
-    let original_handler = ctrlc::set_handler(move || {
-        println!("\nExiting...");
-        std::process::exit(0);
-    });
-    
-    if let Err(e) = original_handler {
-        eprintln!("Warning: Could not set Ctrl+C handler: {}", e);
-    }
+    // No Ctrl+C handler in menu - let main.rs handle it later
 
     loop {
         show_status();
@@ -40,7 +32,7 @@ pub fn show_interactive_menu() -> i32 {
                         execute_command(command);
                         println!();
                     },
-                    CliCommand::Unknown(ref cmd) if cmd == "exit" || cmd == "quit" => {
+                    CliCommand::Unknown(ref cmd) if cmd == "quit" => {
                         println!("Goodbye!");
                         return 1;
                     },
@@ -90,8 +82,6 @@ fn show_menu() {
     println!("  Alt + Caps Lock        - Toggle Caps Lock");
     println!("  Scroll Lock indicator  - Shows current layout (OFF=English, ON=Non-English)");
     println!();
-    println!("Use Ctrl+C to exit at any time");
-    println!();
 }
 
 fn parse_menu_command(input: &str) -> CliCommand {
@@ -102,7 +92,7 @@ fn parse_menu_command(input: &str) -> CliCommand {
         "exit" => CliCommand::Exit,
         "status" => CliCommand::Status,
         "help" => CliCommand::Help,
-        "quit" | "q" => CliCommand::Unknown("exit".to_string()),
+        "quit" => CliCommand::Unknown("quit".to_string()),
         _ => CliCommand::Unknown(input.to_string()),
     }
 }

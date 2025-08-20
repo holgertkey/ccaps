@@ -36,13 +36,16 @@ fn main() {
             execute_command(command);
             // Continue with normal execution after background setup
         }
-        CliCommand::Run => {
+        CliCommand::Menu => {
             // Show interactive menu when no parameters provided
             let menu_result = show_interactive_menu();
             if menu_result != 0 {
                 std::process::exit(menu_result);
             }
             // If menu_result is 0, continue with normal execution
+        }
+        CliCommand::Run => {
+            // Direct run mode - continue with normal execution without menu
         }
     }
     
@@ -80,12 +83,10 @@ fn main() {
         println!("═══════════════════════════════════════════════════");
         println!("       Caps Lock Layout Switcher started!        ");
         println!("═══════════════════════════════════════════════════");
-        println!("Caps Lock - switch keyboard layout");
         println!("Alt + Caps Lock - toggle Caps Lock");
         println!("Scroll Lock indicator shows current layout:");
         println!("  OFF = English layout");
         println!("  ON  = Non-English layout");
-        println!("Press Ctrl+C to exit");
         println!();
     }
     
@@ -107,6 +108,7 @@ fn main() {
                 if !is_background {
                     println!("Hook installed successfully");
                     println!("Layout switcher is now active!");
+                    println!("Press Ctrl+C to exit");
                     println!();
                 }
             },

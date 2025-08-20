@@ -20,7 +20,8 @@ pub enum CliCommand {
     Stop,
     Exit,
     Status,
-    Run, // Default run mode (no parameters)
+    Run, // Direct run mode (-run parameter)
+    Menu, // Interactive menu (no parameters)
     Background, // Internal command for background process
     Help,
     Unknown(String),
@@ -31,7 +32,7 @@ pub fn parse_args() -> CliCommand {
     
     if args.len() < 2 {
         // No arguments provided - show interactive menu
-        return CliCommand::Run;
+        return CliCommand::Menu;
     }
     
     match args[1].as_str() {
@@ -54,6 +55,7 @@ pub fn execute_command(command: CliCommand) -> i32 {
         CliCommand::Status => handle_status(),
         CliCommand::Background => handle_background(),
         CliCommand::Run => 0, // Continue normal execution
+        CliCommand::Menu => 0, // This should not be called directly
         CliCommand::Help => {
             show_help();
             0
@@ -82,7 +84,7 @@ fn handle_background() -> i32 {
 
 fn handle_status() -> i32 {
     println!("CCaps Layout Switcher Status:");
-    println!("═══════════════════════════════");
+    println!("╞═══════════════════════════════════╡");
     
     // Check if running in background
     let is_running = is_already_running();
