@@ -30,6 +30,7 @@ pub fn parse_args() -> CliCommand {
     let args: Vec<String> = env::args().collect();
     
     if args.len() < 2 {
+        // No arguments provided - show interactive menu
         return CliCommand::Run;
     }
     
@@ -38,6 +39,7 @@ pub fn parse_args() -> CliCommand {
         "-stop" => CliCommand::Stop,
         "-exit" => CliCommand::Exit,
         "-status" => CliCommand::Status,
+        "-run" => CliCommand::Run, // Explicit run command
         "--background" => CliCommand::Background,
         "-help" | "--help" | "/?" => CliCommand::Help,
         _ => CliCommand::Unknown(args[1].clone()),
@@ -178,11 +180,12 @@ fn handle_exit() -> i32 {
 }
 
 fn show_help() {
-    println!("CCaps Layout Switcher v0.3.0");
+    println!("CCaps Layout Switcher v0.4.0");
     println!("Keyboard layout switcher using Caps Lock key");
     println!();
     println!("Usage:");
-    println!("  ccaps          - Run in foreground mode");
+    println!("  ccaps          - Show interactive menu");
+    println!("  ccaps -run     - Run in foreground mode");
     println!("  ccaps -start   - Start in background and add to system startup");
     println!("  ccaps -stop    - Stop background process and remove from startup");
     println!("  ccaps -exit    - Stop background process only");

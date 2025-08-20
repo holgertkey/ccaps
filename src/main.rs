@@ -1,6 +1,7 @@
 mod keyboard_hook;
 mod layout_indicator;
 mod cli;
+mod interactive_menu;
 
 use std::ptr;
 use std::mem;
@@ -15,6 +16,7 @@ use winapi::shared::minwindef::*;
 use winapi::shared::windef::*;
 use keyboard_hook::{install_hook, uninstall_hook};
 use cli::{parse_args, execute_command, CliCommand, create_mutex, should_run_in_background};
+use interactive_menu::show_interactive_menu;
 
 // Global atomic pointer to store mutex handle
 static MUTEX_HANDLE: AtomicPtr<winapi::ctypes::c_void> = AtomicPtr::new(ptr::null_mut());
@@ -35,7 +37,12 @@ fn main() {
             // Continue with normal execution after background setup
         }
         CliCommand::Run => {
-            // Continue with normal execution
+            // Show interactive menu when no parameters provided
+            let menu_result = show_interactive_menu();
+            if menu_result != 0 {
+                std::process::exit(menu_result);
+            }
+            // If menu_result is 0, continue with normal execution
         }
     }
     
@@ -69,13 +76,17 @@ fn main() {
         }
     } else {
         // Show startup message in foreground mode
-        println!("Caps Lock Layout Switcher started!");
+        println!();
+        println!("═══════════════════════════════════════════════════");
+        println!("       Caps Lock Layout Switcher started!        ");
+        println!("═══════════════════════════════════════════════════");
         println!("Caps Lock - switch keyboard layout");
         println!("Alt + Caps Lock - toggle Caps Lock");
         println!("Scroll Lock indicator shows current layout:");
         println!("  OFF = English layout");
         println!("  ON  = Non-English layout");
         println!("Press Ctrl+C to exit");
+        println!();
     }
     
     unsafe {
@@ -84,6 +95,7 @@ fn main() {
         if !is_background {
             println!("Current layout: {} (English: {})", layout_name, is_english);
             println!("Setting Scroll Lock to: {}", if is_english { "OFF" } else { "ON" });
+            println!();
         }
         
         // Set initial Scroll Lock state based on current layout
@@ -94,6 +106,8 @@ fn main() {
             Ok(()) => {
                 if !is_background {
                     println!("Hook installed successfully");
+                    println!("Layout switcher is now active!");
+                    println!();
                 }
             },
             Err(e) => {
@@ -107,11 +121,15 @@ fn main() {
         
         // Ctrl+C handler for proper shutdown (только для foreground режима)
         if !is_background {
-            ctrlc::set_handler(move || {
+            // Try to set up Ctrl+C handler, but don't panic if it fails
+            if let Err(e) = ctrlc::set_handler(move || {
                 println!("\nShutting down...");
                 cleanup_and_exit();
                 std::process::exit(0);
-            }).expect("Error setting Ctrl+C handler");
+            }) {
+                println!("Warning: Could not set Ctrl+C handler: {}", e);
+                println!("You may need to close the console window manually to exit.");
+            }
         }
         
         // Create hidden window for message handling
