@@ -46,17 +46,22 @@ The Scroll Lock LED on your keyboard serves as a layout indicator:
 
 ## Quick Start
 
-1. **Start the program**:
+1. **Start with interactive menu**:
+   ```bash
+   ccaps
+   ```
+
+2. **Run in foreground mode**:
+   ```bash
+   ccaps -run
+   ```
+
+3. **Start in background + add to startup**:
    ```bash
    ccaps -start
    ```
 
-2. **Check status**:
-   ```bash
-   ccaps -status
-   ```
-
-3. **Stop the program**:
+4. **Stop + remove from startup**:
    ```bash
    ccaps -stop
    ```
