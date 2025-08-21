@@ -101,6 +101,7 @@ pub unsafe fn update_layout_indicator() {
 }
 
 // Public function to get current layout information (for debugging)
+#[allow(dead_code)]
 pub unsafe fn get_current_layout_info() -> (String, bool) {
     unsafe {
         let hwnd = GetForegroundWindow();

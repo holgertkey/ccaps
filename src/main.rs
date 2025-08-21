@@ -1,5 +1,6 @@
 mod keyboard_hook;
 mod layout_indicator;
+mod layout_manager;
 mod cli;
 mod interactive_menu;
 
@@ -14,7 +15,7 @@ use winapi::um::wincon::*;
 use winapi::um::errhandlingapi::GetLastError;
 use winapi::shared::minwindef::*;
 use winapi::shared::windef::*;
-use keyboard_hook::{install_hook, uninstall_hook};
+use keyboard_hook::{install_hook, uninstall_hook, initialize_layout_switching};
 use cli::{parse_args, execute_command, CliCommand, create_mutex, should_run_in_background};
 use interactive_menu::show_interactive_menu;
 
@@ -28,13 +29,25 @@ fn main() {
     // Handle CLI commands that don't require running the main loop
     match command {
         CliCommand::Start | CliCommand::Stop | CliCommand::Exit | CliCommand::Status | CliCommand::Help | CliCommand::Unknown(_) => {
-            let exit_code = execute_command(command);
+            let (exit_code, _) = execute_command(command);
             std::process::exit(exit_code);
         }
-        CliCommand::Background => {
-            // Execute background-specific logic but continue execution
-            execute_command(command);
+        CliCommand::Background(country_codes) => {
+            // Execute background-specific logic and get country codes
+            let (_, _) = execute_command(CliCommand::Background(country_codes.clone()));
+            
+            // Validate country codes if provided
+            if !country_codes.is_empty() {
+                if let Err(error) = layout_manager::validate_country_codes(
+                    &country_codes.iter().map(|s| s.as_str()).collect::<Vec<_>>()
+                ) {
+                    eprintln!("Error: {}", error);
+                    std::process::exit(1);
+                }
+            }
+            
             // Continue with normal execution after background setup
+            run_main_loop(country_codes);
         }
         CliCommand::Menu => {
             // Show interactive menu when no parameters provided
@@ -43,12 +56,26 @@ fn main() {
                 std::process::exit(menu_result);
             }
             // If menu_result is 0, continue with normal execution
+            run_main_loop(vec![]);
         }
-        CliCommand::Run => {
-            // Direct run mode - continue with normal execution without menu
+        CliCommand::Run(country_codes) => {
+            // Validate country codes if provided
+            if !country_codes.is_empty() {
+                if let Err(error) = layout_manager::validate_country_codes(
+                    &country_codes.iter().map(|s| s.as_str()).collect::<Vec<_>>()
+                ) {
+                    eprintln!("Error: {}", error);
+                    std::process::exit(1);
+                }
+            }
+            
+            // Direct run mode - continue with normal execution
+            run_main_loop(country_codes);
         }
     }
-    
+}
+
+fn run_main_loop(country_codes: Vec<String>) {
     // Create mutex to prevent multiple instances
     let mutex = create_mutex();
     if mutex.is_null() {
@@ -91,11 +118,17 @@ fn main() {
     }
     
     unsafe {
-        // Show current layout info only in foreground mode
-        let (layout_name, is_english) = layout_indicator::get_current_layout_info();
+        // Initialize layout switching with country codes
+        initialize_layout_switching(&country_codes);
+        
         if !is_background {
-            println!("Current layout: {} (English: {})", layout_name, is_english);
-            println!("Setting Scroll Lock to: {}", if is_english { "OFF" } else { "ON" });
+            // Show current layout info only in foreground mode
+            if let Some(current_layout) = layout_manager::get_current_layout() {
+                println!("Current layout: {} ({})", current_layout.name, current_layout.short_code);
+                println!("Setting Scroll Lock to: {}", if current_layout.is_english { "OFF" } else { "ON" });
+            } else {
+                println!("Could not detect current layout");
+            }
             println!();
         }
         
@@ -108,6 +141,17 @@ fn main() {
                 if !is_background {
                     println!("Hook installed successfully");
                     println!("Layout switcher is now active!");
+                    
+                    // Show switching configuration
+                    let (current_index, layout_names) = keyboard_hook::get_switching_status();
+                    if !layout_names.is_empty() {
+                        println!("Switching between {} layout(s):", layout_names.len());
+                        for (i, name) in layout_names.iter().enumerate() {
+                            let marker = if i == current_index { " [CURRENT]" } else { "" };
+                            println!("  {}{}", name, marker);
+                        }
+                    }
+                    
                     println!("Press Ctrl+C to exit");
                     println!();
                 }
@@ -121,7 +165,7 @@ fn main() {
             }
         }
         
-        // Ctrl+C handler for proper shutdown (только для foreground режима)
+        // Ctrl+C handler for proper shutdown (only for foreground mode)
         if !is_background {
             // Try to set up Ctrl+C handler, but don't panic if it fails
             if let Err(e) = ctrlc::set_handler(move || {

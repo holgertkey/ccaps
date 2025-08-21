@@ -10,6 +10,7 @@ use winapi::um::errhandlingapi::GetLastError;
 use winapi::um::winnt::{KEY_SET_VALUE, KEY_QUERY_VALUE, REG_SZ, HANDLE};
 use winapi::shared::minwindef::*;
 use winapi::shared::winerror::*;
+use crate::layout_manager;
 
 const MUTEX_NAME: &str = "Global\\CCapsLayoutSwitcherMutex";
 const REGISTRY_KEY: &str = "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run";
@@ -20,9 +21,9 @@ pub enum CliCommand {
     Stop,
     Exit,
     Status,
-    Run, // Direct run mode (-run parameter)
+    Run(Vec<String>), // Modified to include country codes
     Menu, // Interactive menu (no parameters)
-    Background, // Internal command for background process
+    Background(Vec<String>), // Internal command for background process with country codes
     Help,
     Unknown(String),
 }
@@ -40,40 +41,54 @@ pub fn parse_args() -> CliCommand {
         "-stop" => CliCommand::Stop,
         "-exit" => CliCommand::Exit,
         "-status" => CliCommand::Status,
-        "-run" => CliCommand::Run, // Explicit run command
-        "--background" => CliCommand::Background,
+        "-run" => {
+            // Parse country codes after -run
+            let country_codes: Vec<String> = args[2..].iter()
+                .filter(|arg| arg.starts_with('-') && arg.len() > 1)
+                .map(|arg| arg[1..].to_string())
+                .collect();
+            CliCommand::Run(country_codes)
+        },
+        "--background" => {
+            // Parse country codes after --background
+            let country_codes: Vec<String> = args[2..].iter()
+                .filter(|arg| arg.starts_with('-') && arg.len() > 1)
+                .map(|arg| arg[1..].to_string())
+                .collect();
+            CliCommand::Background(country_codes)
+        },
         "-help" | "--help" | "/?" => CliCommand::Help,
         _ => CliCommand::Unknown(args[1].clone()),
     }
 }
 
-pub fn execute_command(command: CliCommand) -> i32 {
+pub fn execute_command(command: CliCommand) -> (i32, Vec<String>) {
     match command {
-        CliCommand::Start => handle_start(),
-        CliCommand::Stop => handle_stop(),
-        CliCommand::Exit => handle_exit(),
-        CliCommand::Status => handle_status(),
-        CliCommand::Background => handle_background(),
-        CliCommand::Run => 0, // Continue normal execution
-        CliCommand::Menu => 0, // This should not be called directly
+        CliCommand::Start => (handle_start(), vec![]),
+        CliCommand::Stop => (handle_stop(), vec![]),
+        CliCommand::Exit => (handle_exit(), vec![]),
+        CliCommand::Status => (handle_status(), vec![]),
+        CliCommand::Background(country_codes) => (handle_background(&country_codes), country_codes),
+        CliCommand::Run(country_codes) => (0, country_codes), // Continue normal execution
+        CliCommand::Menu => (0, vec![]), // This should not be called directly
         CliCommand::Help => {
             show_help();
-            0
+            (0, vec![])
         },
         CliCommand::Unknown(cmd) => {
             eprintln!("Unknown command: {}", cmd);
             show_help();
-            1
+            (1, vec![])
         }
     }
 }
 
-fn handle_background() -> i32 {
+fn handle_background(country_codes: &[String]) -> i32 {
     // When running in the background, we only check autoload
     // but we don't install it again
     if !is_in_startup() {
         // If for some reason the autoload is missing, we add it
-        if let Err(e) = add_to_startup() {
+        if let Err(e) = add_to_startup(country_codes) {
             eprintln!("Warning: Could not ensure startup entry: {}", e);
         }
     }
@@ -84,7 +99,7 @@ fn handle_background() -> i32 {
 
 fn handle_status() -> i32 {
     println!("CCaps Layout Switcher Status:");
-    println!("╞═══════════════════════════════════╡");
+    println!("╞════════════════════════════════════════════════════════════════════════════════╡");
     
     // Check if running in background
     let is_running = is_already_running();
@@ -101,6 +116,39 @@ fn handle_status() -> i32 {
         }
     }
     
+    println!();
+    
+    // Show available layouts
+    let layouts = layout_manager::get_all_keyboard_layouts();
+    println!("Available keyboard layouts:");
+    println!("┌─────┬──────────────────────────────────────┬─────────────────┐");
+    println!("│ Code│ Language                             │ Status          │");
+    println!("├─────┼──────────────────────────────────────┼─────────────────┤");
+    
+    let current_layout = layout_manager::get_current_layout();
+    
+    for layout in &layouts {
+        let status = if let Some(ref current) = current_layout {
+            if current.hkl == layout.hkl {
+                "CURRENT ✓"
+            } else {
+                "Available"
+            }
+        } else {
+            "Available"
+        };
+        
+        println!("│ -{:<2} │ {:<36} │ {:<15} │", 
+                layout.short_code, layout.name, status);
+    }
+    println!("└─────┴──────────────────────────────────────┴─────────────────┘");
+    
+    println!();
+    println!("Usage examples:");
+    println!("  ccaps -run -ru     # Switch between English and Russian");
+    println!("  ccaps -run -ua     # Switch between English and Ukrainian"); 
+    println!("  ccaps -run -de -fr # Switch between German and French");
+    println!("  ccaps -start       # Start with all layouts (cycle through all)");
     println!();
     
     // Show recommendations
@@ -132,15 +180,15 @@ fn handle_start() -> i32 {
         return 1;
     }
     
-    // Add to startup
-    if let Err(e) = add_to_startup() {
+    // Add to startup without specific country codes (cycle through all)
+    if let Err(e) = add_to_startup(&[]) {
         eprintln!("Warning: Could not add to startup: {}", e);
     } else {
         println!("Added to system startup.");
     }
     
     // Start in background (completely detached process)
-    if let Err(e) = start_background_process() {
+    if let Err(e) = start_background_process(&[]) {
         eprintln!("Failed to start background process: {}", e);
         return 1;
     }
@@ -182,22 +230,29 @@ fn handle_exit() -> i32 {
 }
 
 fn show_help() {
-    println!("CCaps Layout Switcher v0.4.0");
+    println!("CCaps Layout Switcher v0.5.0");
     println!("Keyboard layout switcher using Caps Lock key");
     println!();
     println!("Usage:");
-    println!("  ccaps          - Show interactive menu");
-    println!("  ccaps -run     - Run in foreground mode");
-    println!("  ccaps -start   - Start in background and add to system startup");
-    println!("  ccaps -stop    - Stop background process and remove from startup");
-    println!("  ccaps -exit    - Stop background process only");
-    println!("  ccaps -status  - Show current status");
-    println!("  ccaps -help    - Show this help");
+    println!("  ccaps              - Show interactive menu");
+    println!("  ccaps -run         - Run in foreground mode (cycle through all layouts)");
+    println!("  ccaps -run -ru     - Run with English ↔ Russian switching");
+    println!("  ccaps -run -ua     - Run with English ↔ Ukrainian switching");
+    println!("  ccaps -run -de -fr - Run with German ↔ French switching");
+    println!("  ccaps -start       - Start in background and add to system startup");
+    println!("  ccaps -stop        - Stop background process and remove from startup");
+    println!("  ccaps -exit        - Stop background process only");
+    println!("  ccaps -status      - Show current status and available language codes");
+    println!("  ccaps -help        - Show this help");
     println!();
     println!("Key bindings:");
     println!("  Caps Lock              - Switch keyboard layout");
     println!("  Alt + Caps Lock        - Toggle Caps Lock");
     println!("  Scroll Lock indicator  - Shows current layout (OFF=English, ON=Non-English)");
+    println!();
+    println!("Country codes:");
+    println!("  Use 'ccaps -status' to see all available language codes");
+    println!("  If no codes specified, cycles through all installed layouts");
 }
 
 fn is_already_running() -> bool {
@@ -333,7 +388,7 @@ fn get_startup_path() -> Result<String, String> {
     }
 }
 
-fn add_to_startup() -> Result<(), String> {
+fn add_to_startup(country_codes: &[String]) -> Result<(), String> {
     unsafe {
         let mut key: HKEY = ptr::null_mut();
         let key_name = format!("{}\0", REGISTRY_KEY);
@@ -356,7 +411,15 @@ fn add_to_startup() -> Result<(), String> {
         // Get current executable path
         let exe_path = env::current_exe()
             .map_err(|_| "Failed to get executable path")?;
-        let exe_path_str = format!("\"{}\" --background\0", exe_path.display());
+        
+        let mut exe_path_str = format!("\"{}\" --background", exe_path.display());
+        
+        // Add country codes to the command line
+        for code in country_codes {
+            exe_path_str.push_str(&format!(" -{}", code));
+        }
+        exe_path_str.push('\0');
+        
         let exe_path_wide: Vec<u16> = OsString::from(exe_path_str)
             .encode_wide()
             .collect();
@@ -419,17 +482,22 @@ fn remove_from_startup() -> Result<(), String> {
     }
 }
 
-fn start_background_process() -> Result<(), String> {
+fn start_background_process(country_codes: &[String]) -> Result<(), String> {
     use std::process::Command;
     
     let exe_path = env::current_exe()
         .map_err(|_| "Failed to get executable path")?;
 
+    let mut command = Command::new(&exe_path);
+    command.arg("--background");
+    
+    // Add country codes to the background process
+    for code in country_codes {
+        command.arg(&format!("-{}", code));
+    }
+
     // Simple launch without additional flags
-    match Command::new(&exe_path)
-        .arg("--background")
-        .spawn()
-    {
+    match command.spawn() {
         Ok(child) => {
             // Get the PID of the child process
             let _pid = child.id();
