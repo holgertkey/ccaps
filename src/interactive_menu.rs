@@ -3,12 +3,12 @@ use crate::cli::{execute_command, CliCommand};
 use crate::layout_manager;
 
 pub fn show_interactive_menu() -> (i32, Vec<String>) {
+    // Show initial menu only once
+    show_status();
+    show_menu();
+    
     // No Ctrl+C handler in menu - let main.rs handle it later
-
     loop {
-        show_status();
-        show_menu();
-        
         print!("Enter command: ");
         io::stdout().flush().unwrap();
         
@@ -30,21 +30,41 @@ pub fn show_interactive_menu() -> (i32, Vec<String>) {
                         } else {
                             println!("Starting in foreground mode with country codes: {}", country_codes.join(", "));
                         }
+                        println!(); // Extra line for better readability
                         // Don't install Ctrl+C handler here - let main.rs handle it
                         return (0, country_codes); // Return country codes to main
                     },
                     CliCommand::Help => {
+                        println!();
                         let (result, _) = execute_command(command);
                         if result != 0 {
                             println!("Command failed with code: {}", result);
                         }
                         println!();
                     },
+                    CliCommand::Status => {
+                        println!();
+                        let (result, _) = execute_command(command);
+                        if result != 0 {
+                            println!("Command failed with code: {}", result);
+                        }
+                        println!();
+                    },
+                    CliCommand::Unknown(ref cmd) if cmd == "menu" => {
+                        println!();
+                        show_menu(); // Show menu again
+                        println!();
+                    },
                     CliCommand::Unknown(ref cmd) if cmd == "quit" => {
                         println!("Goodbye!");
                         return (1, vec![]);
                     },
+                    CliCommand::Unknown(ref cmd) if cmd.starts_with("Invalid codes:") => {
+                        // Don't execute invalid commands, just continue
+                        println!();
+                    },
                     _ => {
+                        println!();
                         let (result, _) = execute_command(command);
                         if result != 0 {
                             println!("Command failed with code: {}", result);
@@ -63,8 +83,8 @@ pub fn show_interactive_menu() -> (i32, Vec<String>) {
 
 fn show_status() {
     println!("╔══════════════════════════════════════════════════════════════════════════════╗");
-    println!("║                            CCaps Layout Switcher v0.5.0                      ║");
-    println!("║                        Keyboard layout switcher using Caps Lock key          ║");
+    println!("║                        CCaps Layout Switcher v0.5.0                          ║");
+    println!("║                 Keyboard layout switcher using Caps Lock key                 ║");
     println!("╚══════════════════════════════════════════════════════════════════════════════╝");
     println!();
     
@@ -80,14 +100,15 @@ fn show_menu() {
     println!("Available commands:");
     println!("┌────────────────────────────────────────────────────────────────────────────┐");
     println!("│  run           - Run in foreground mode (all layouts)                      │");
-    println!("│  run -ru       - Run with English ↔ Russian switching                     │");
-    println!("│  run -ua       - Run with English ↔ Ukrainian switching                   │");
-    println!("│  run -de -fr   - Run with German ↔ French switching                       │");
+    println!("│  run -ru       - Run with English ↔ Russian switching                      │");
+    println!("│  run -ua       - Run with English ↔ Ukrainian switching                    │");
+    println!("│  run -de -fr   - Run with German ↔ French switching                        │");
     println!("│  start         - Start in background and add to system startup             │");
     println!("│  stop          - Stop background process and remove from startup           │");
     println!("│  exit          - Stop background process only                              │");
     println!("│  status        - Show current status and available language codes          │");
     println!("│  help          - Show detailed help                                        │");
+    println!("│  menu          - Show this menu again                                      │");
     println!("│  quit          - Exit this menu                                            │");
     println!("└────────────────────────────────────────────────────────────────────────────┘");
     println!();
@@ -137,6 +158,7 @@ fn parse_menu_command(input: &str) -> CliCommand {
         "exit" => CliCommand::Exit,
         "status" => CliCommand::Status,
         "help" => CliCommand::Help,
+        "menu" => CliCommand::Unknown("menu".to_string()),
         "quit" => CliCommand::Unknown("quit".to_string()),
         _ => CliCommand::Unknown(input.to_string()),
     }

@@ -108,7 +108,7 @@ fn run_main_loop(country_codes: Vec<String>) {
         // Show startup message in foreground mode
         println!();
         println!("═══════════════════════════════════════════════════");
-        println!("       Caps Lock Layout Switcher started!        ");
+        println!("       Caps Lock Layout Switcher started!          ");
         println!("═══════════════════════════════════════════════════");
         println!("Alt + Caps Lock - toggle Caps Lock");
         println!("Scroll Lock indicator shows current layout:");

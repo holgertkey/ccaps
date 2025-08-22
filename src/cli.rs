@@ -99,7 +99,7 @@ fn handle_background(country_codes: &[String]) -> i32 {
 
 fn handle_status() -> i32 {
     println!("CCaps Layout Switcher Status:");
-    println!("╞════════════════════════════════════════════════════════════════════════════════╡");
+    println!("╞══════════════════════════════════════════════════════════════╡");
     
     // Check if running in background
     let is_running = is_already_running();
