@@ -51,12 +51,12 @@ fn main() {
         }
         CliCommand::Menu => {
             // Show interactive menu when no parameters provided
-            let menu_result = show_interactive_menu();
+            let (menu_result, country_codes) = show_interactive_menu();
             if menu_result != 0 {
                 std::process::exit(menu_result);
             }
-            // If menu_result is 0, continue with normal execution
-            run_main_loop(vec![]);
+            // If menu_result is 0, continue with normal execution using country codes from menu
+            run_main_loop(country_codes);
         }
         CliCommand::Run(country_codes) => {
             // Validate country codes if provided

@@ -2,7 +2,7 @@ use std::io::{self, Write};
 use crate::cli::{execute_command, CliCommand};
 use crate::layout_manager;
 
-pub fn show_interactive_menu() -> i32 {
+pub fn show_interactive_menu() -> (i32, Vec<String>) {
     // No Ctrl+C handler in menu - let main.rs handle it later
 
     loop {
@@ -24,10 +24,14 @@ pub fn show_interactive_menu() -> i32 {
                 let command = parse_menu_command(input);
                 
                 match command {
-                    CliCommand::Run(_) => {
-                        println!("Starting in foreground mode...");
+                    CliCommand::Run(country_codes) => {
+                        if country_codes.is_empty() {
+                            println!("Starting in foreground mode with all layouts...");
+                        } else {
+                            println!("Starting in foreground mode with country codes: {}", country_codes.join(", "));
+                        }
                         // Don't install Ctrl+C handler here - let main.rs handle it
-                        return 0; // Return to main execution
+                        return (0, country_codes); // Return country codes to main
                     },
                     CliCommand::Help => {
                         let (result, _) = execute_command(command);
@@ -38,7 +42,7 @@ pub fn show_interactive_menu() -> i32 {
                     },
                     CliCommand::Unknown(ref cmd) if cmd == "quit" => {
                         println!("Goodbye!");
-                        return 1;
+                        return (1, vec![]);
                     },
                     _ => {
                         let (result, _) = execute_command(command);
@@ -51,7 +55,7 @@ pub fn show_interactive_menu() -> i32 {
             },
             Err(error) => {
                 eprintln!("Error reading input: {}", error);
-                return 1;
+                return (1, vec![]);
             }
         }
     }
@@ -115,18 +119,18 @@ fn parse_menu_command(input: &str) -> CliCommand {
                     &country_codes.iter().map(|s| s.as_str()).collect::<Vec<_>>()
                 ) {
                     Ok(_) => {
-                        println!("Validated country codes: {}", country_codes.join(", "));
-                        CliCommand::Run(country_codes)
+                        println!("✓ Validated country codes: {}", country_codes.join(", "));
                     },
                     Err(error) => {
-                        println!("Error: {}", error);
-                        return CliCommand::Unknown(input.to_string());
+                        println!("✗ Error: {}", error);
+                        return CliCommand::Unknown(format!("Invalid codes: {}", input));
                     }
                 }
             } else {
-                println!("Running with all available layouts");
-                CliCommand::Run(country_codes)
+                println!("✓ Using all available layouts");
             }
+            
+            CliCommand::Run(country_codes)
         },
         "start" => CliCommand::Start,
         "stop" => CliCommand::Stop,
