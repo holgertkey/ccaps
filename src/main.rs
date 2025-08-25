@@ -3,6 +3,7 @@ mod layout_indicator;
 mod layout_manager;
 mod cli;
 mod interactive_menu;
+mod config;
 
 use std::ptr;
 use std::mem;
@@ -28,18 +29,26 @@ fn main() {
     
     // Handle CLI commands that don't require running the main loop
     match command {
-        CliCommand::Start | CliCommand::Stop | CliCommand::Exit | CliCommand::Status | CliCommand::Help | CliCommand::Unknown(_) => {
+        CliCommand::Start(_) | CliCommand::Stop | CliCommand::Exit | CliCommand::Status | CliCommand::Help | CliCommand::Unknown(_) => {
             let (exit_code, _) = execute_command(command);
             std::process::exit(exit_code);
         }
         CliCommand::Background(country_codes) => {
             // Execute background-specific logic and get country codes
-            let (_, _) = execute_command(CliCommand::Background(country_codes.clone()));
+            let (_, final_country_codes) = execute_command(CliCommand::Background(country_codes.clone()));
+            
+            // Load configuration from file if no country codes provided via command line
+            let country_codes_to_use = if final_country_codes.is_empty() {
+                let config = config::load_config();
+                config.country_codes
+            } else {
+                final_country_codes
+            };
             
             // Validate country codes if provided
-            if !country_codes.is_empty() {
+            if !country_codes_to_use.is_empty() {
                 if let Err(error) = layout_manager::validate_country_codes(
-                    &country_codes.iter().map(|s| s.as_str()).collect::<Vec<_>>()
+                    &country_codes_to_use.iter().map(|s| s.as_str()).collect::<Vec<_>>()
                 ) {
                     eprintln!("Error: {}", error);
                     std::process::exit(1);
@@ -47,7 +56,7 @@ fn main() {
             }
             
             // Continue with normal execution after background setup
-            run_main_loop(country_codes);
+            run_main_loop(country_codes_to_use);
         }
         CliCommand::Menu => {
             // Show interactive menu when no parameters provided

@@ -1,6 +1,6 @@
-# CCaps Layout Switcher v0.5.0
+# CCaps Layout Switcher v0.6.0
 
-A lightweight Windows keyboard layout switcher that repurposes the Caps Lock key for quick layout switching with country-specific filtering.
+A lightweight Windows keyboard layout switcher that repurposes the Caps Lock key for quick layout switching with country-specific filtering and configuration persistence.
 
 ## Features
 
@@ -10,6 +10,7 @@ A lightweight Windows keyboard layout switcher that repurposes the Caps Lock key
 - **Visual Indicator**: Scroll Lock LED shows current layout (OFF = English, ON = Non-English)
 - **Background Mode**: Runs silently in the background
 - **Auto-startup**: Automatically starts with Windows
+- **Configuration Persistence**: Remembers your layout preferences
 - **Low Resource Usage**: Minimal CPU and memory footprint
 - **No Dependencies**: Single executable file
 
@@ -27,8 +28,10 @@ A lightweight Windows keyboard layout switcher that repurposes the Caps Lock key
 # Basic commands
 ccaps              # Show interactive menu
 ccaps -run         # Run in foreground mode (all layouts)
-ccaps -start       # Start in background + add to system startup
-ccaps -stop        # Stop background process + remove from startup
+ccaps -start       # Start in background with all layouts + add to auto-startup
+ccaps -start -ru   # Start in background with Russian/English + add to auto-startup
+ccaps -start -ua   # Start in background with Ukrainian/English + add to auto-startup
+ccaps -stop        # Stop background process + remove from startup + delete config
 ccaps -exit        # Stop background process only
 ccaps -status      # Show status and available language codes
 ccaps -help        # Show help information
@@ -83,17 +86,31 @@ ccaps -run -ru
 ccaps -run -de -fr -es  # German ↔ French ↔ Spanish
 ```
 
-### 4. Start in Background with Auto-startup
+### 4. Start in Background with Russian/English and Auto-startup
+```bash
+ccaps -start -ru
+```
+
+### 5. Start in Background with All Layouts and Auto-startup
 ```bash
 ccaps -start
 ```
 
-### 5. Check Available Languages
+### 6. Check Available Languages and Current Configuration
 ```bash
 ccaps -status
 ```
 Output example:
 ```
+CCaps Layout Switcher Status:
+╞══════════════════════════════════════════════════════════════╡
+Background process: RUNNING ✓
+Auto-startup:       ENABLED ✓
+Startup command:    "C:\Program Files\CCaps\ccaps.exe" --background -ru
+Configuration file: EXISTS ✓
+Config path:        C:\Program Files\CCaps\ccaps-config.json
+Saved country codes: ru
+
 Available keyboard layouts:
 ┌─────┬──────────────────────────────────────┬─────────────────┐
 │ Code│ Language                             │ Status          │
@@ -105,10 +122,36 @@ Available keyboard layouts:
 └─────┴──────────────────────────────────────┴─────────────────┘
 
 Usage examples:
-  ccaps -run -ru     # Switch between English and Russian
-  ccaps -run -ua     # Switch between English and Ukrainian
-  ccaps -run -de -fr # Switch between German and French
+  ccaps -run -ru        # Switch between English and Russian
+  ccaps -run -ua        # Switch between English and Ukrainian
+  ccaps -start -ru      # Start with Russian/English and add to auto-startup
+  ccaps -start          # Start with all layouts and add to auto-startup
+
+Status: All systems operational ✓
 ```
+
+## Configuration Persistence
+
+CCaps automatically saves your layout preferences when using `-start` with country codes:
+
+- **Configuration file**: `ccaps-config.json` (created in the program directory)
+- **Auto-restore**: Background process automatically loads saved preferences
+- **JSON format**: Human-readable configuration file
+
+Example configuration file:
+```json
+{
+  "country_codes": ["ru"],
+  "version": "0.6.0"
+}
+```
+
+### Configuration Management
+
+- **Automatic saving**: Using `ccaps -start -ru` saves Russian/English preference
+- **Auto-loading**: Background process loads saved preferences on Windows startup
+- **Manual cleanup**: `ccaps -stop` removes configuration file
+- **Status check**: `ccaps -status` shows current configuration
 
 ## How It Works
 
@@ -119,6 +162,7 @@ CCaps uses Windows low-level keyboard hooks to intercept Caps Lock key presses a
 3. Cycles through selected keyboard layouts (filtered by country codes)
 4. Updates the Scroll Lock indicator to show the current layout
 5. Blocks the default Caps Lock behavior (unless Alt is held)
+6. Saves and restores layout preferences automatically
 
 ### Layout Selection Logic
 
@@ -141,14 +185,22 @@ The layout detection works with all Windows keyboard layouts. The program automa
 
 ## Advanced Usage
 
-### Background Process Management
+### Background Process Management with Specific Layouts
 ```bash
 # Start with specific layouts and auto-startup
-ccaps -start
-# The background process will use all layouts by default
+ccaps -start -ru          # Russian/English switching
+ccaps -start -de -fr      # German/French switching
+ccaps -start              # All layouts (default)
 
-# For country-specific background switching, use:
-ccaps -run -ru     # Then minimize or run in background manually
+# The configuration is automatically saved and restored
+```
+
+### Interactive Menu with Configuration
+```bash
+ccaps
+# Choose from menu:
+# start -ru     # This saves the preference and starts background process
+# run -ru       # This only runs temporarily without saving
 ```
 
 ### Registry Integration
@@ -156,6 +208,7 @@ The program stores startup configuration in:
 ```
 HKEY_CURRENT_USER\SOFTWARE\Microsoft\Windows\CurrentVersion\Run
 Key: "CCaps Layout Switcher"
+Value: "C:\Program Files\CCaps\ccaps.exe" --background -ru
 ```
 
 ### Status Monitoring
@@ -165,9 +218,11 @@ ccaps -status
 Shows:
 - Background process status
 - Auto-startup configuration
+- Configuration file status and location
+- Saved country codes
 - All available keyboard layouts with country codes
 - Current active layout
-- Usage examples
+- Usage examples and recommendations
 
 ## Building from Source
 
@@ -187,26 +242,21 @@ cargo build --release
 
 The executable will be created at `target/release/ccaps.exe`.
 
-### Build Configuration
+### Dependencies
 
-The project is optimized for size in release mode:
-
-```toml
-[profile.release]
-opt-level = "s"    # Optimize for size
-lto = true         # Link Time Optimization  
-codegen-units = 1  # Better optimization
-panic = "abort"    # Smaller binary size
-strip = true       # Remove debug info
-```
+- **winapi**: Windows API bindings
+- **ctrlc**: Ctrl+C signal handling
+- **serde**: Serialization framework
+- **serde_json**: JSON serialization
 
 ## Technical Details
 
 - **Language**: Rust
-- **Version**: 0.5.0
-- **Windows APIs**: WinAPI (winuser, winreg, synchapi)
+- **Version**: 0.6.0
+- **Windows APIs**: WinAPI (winuser, winreg, synchapi, fileapi)
 - **Hook Type**: Low-level keyboard hook (WH_KEYBOARD_LL)
 - **Registry**: Uses `HKEY_CURRENT_USER\SOFTWARE\Microsoft\Windows\CurrentVersion\Run`
+- **Configuration**: JSON file in program directory
 - **Mutex**: Global mutex prevents multiple instances
 - **Layout Detection**: Language ID extraction from HKL handles
 
@@ -226,38 +276,43 @@ ccaps -status
 
 # Restart and re-enable startup
 ccaps -stop
-ccaps -start
+ccaps -start -ru    # or your preferred layout codes
 ```
 
-### Only one layout switching
-If you specify a country code but only have English installed, the program will switch between the current layout and itself. Install additional keyboard layouts in Windows Settings.
+### Configuration not loading
+- Check if configuration file exists: `ccaps -status`
+- Restart background process: `ccaps -exit` then `ccaps -start`
+- Manually delete and recreate: `ccaps -stop` then `ccaps -start -ru`
 
 ### Layout switching not working with specific codes
 - Ensure the specified keyboard layouts are installed in Windows
 - Check available codes with: `ccaps -status`
 - Verify layouts in Settings → Time & Language → Language → Preferred languages
 
-### Scroll Lock indicator not updating
-- Some keyboards don't have Scroll Lock LEDs
-- Try using software that shows Scroll Lock status
-- The functionality works even without visible indicator
+## Migration from v0.5.0
 
-## Migration from v0.4.0
+Version 0.6.0 introduces configuration persistence:
 
-Version 0.5.0 is backward compatible with v0.4.0 commands:
+- **Backward compatible**: All v0.5.0 commands work the same
+- **New feature**: `ccaps -start -ru` now saves the preference
+- **Enhanced**: Background process remembers your layout choices
+- **Improved**: `ccaps -status` shows configuration information
 
-- `ccaps -run` works the same (cycles through all layouts)
-- `ccaps -start`, `ccaps -stop`, `ccaps -status` unchanged
-- New: Country code filtering with `-ru`, `-ua`, etc.
+### Migration Steps
+1. Update to v0.6.0
+2. Run `ccaps -start` with your preferred country codes
+3. The program will automatically save and restore your preferences
 
 ## Uninstall
 
 ```bash
-# Stop the program and remove from startup
+# Stop the program and remove all traces
 ccaps -stop
 
 # Delete the executable file
 del ccaps.exe
+
+# Configuration file is automatically deleted by 'ccaps -stop'
 ```
 
 ## License
@@ -265,6 +320,17 @@ del ccaps.exe
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## Changelog
+
+### v0.6.0
+- ✨ Added configuration persistence with JSON file
+- ✨ Enhanced `-start` command to accept country codes
+- ✨ Background process now remembers layout preferences
+- ✨ Interactive menu supports `start` command with country codes
+- ✨ Improved status command with configuration information
+- 🔧 Automatic configuration loading in background mode
+- 🔧 Configuration cleanup on `-stop` command
+- 📚 Updated documentation with configuration examples
+- 🔧 Enhanced error handling for configuration management
 
 ### v0.5.0
 - ✨ Added country code filtering for specific language switching

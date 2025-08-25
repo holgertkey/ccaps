@@ -83,7 +83,7 @@ pub fn show_interactive_menu() -> (i32, Vec<String>) {
 
 fn show_status() {
     println!("╔══════════════════════════════════════════════════════════════════════════════╗");
-    println!("║                        CCaps Layout Switcher v0.5.0                          ║");
+    println!("║                        CCaps Layout Switcher v0.6.0                          ║");
     println!("║                 Keyboard layout switcher using Caps Lock key                 ║");
     println!("╚══════════════════════════════════════════════════════════════════════════════╝");
     println!();
@@ -100,10 +100,10 @@ fn show_menu() {
     println!("Available commands:");
     println!("┌────────────────────────────────────────────────────────────────────────────┐");
     println!("│  run           - Run in foreground mode (all layouts)                      │");
-    println!("│  run -ru       - Run with English ↔ Russian switching                      │");
-    println!("│  run -ua       - Run with English ↔ Ukrainian switching                    │");
+    println!("│  run -de       - Run with English ↔ German switching                       │");
     println!("│  run -de -fr   - Run with German ↔ French switching                        │");
-    println!("│  start         - Start in background and add to system startup             │");
+    println!("│  start         - Start in background (all layouts) and add to auto-startup │");
+    println!("│  start -de     - Start in background (German/English) and auto-startup     │");
     println!("│  stop          - Stop background process and remove from startup           │");
     println!("│  exit          - Stop background process only                              │");
     println!("│  status        - Show current status and available language codes          │");
@@ -153,7 +153,32 @@ fn parse_menu_command(input: &str) -> CliCommand {
             
             CliCommand::Run(country_codes)
         },
-        "start" => CliCommand::Start,
+        "start" => {
+            // Parse country codes after start command
+            let country_codes: Vec<String> = parts[1..].iter()
+                .filter(|arg| arg.starts_with('-') && arg.len() > 1)
+                .map(|arg| arg[1..].to_string())
+                .collect();
+            
+            // Validate country codes if provided
+            if !country_codes.is_empty() {
+                match layout_manager::validate_country_codes(
+                    &country_codes.iter().map(|s| s.as_str()).collect::<Vec<_>>()
+                ) {
+                    Ok(_) => {
+                        println!("✓ Validated country codes: {}", country_codes.join(", "));
+                    },
+                    Err(error) => {
+                        println!("✗ Error: {}", error);
+                        return CliCommand::Unknown(format!("Invalid codes: {}", input));
+                    }
+                }
+            } else {
+                println!("✓ Using all available layouts");
+            }
+            
+            CliCommand::Start(country_codes)
+        },
         "stop" => CliCommand::Stop,
         "exit" => CliCommand::Exit,
         "status" => CliCommand::Status,

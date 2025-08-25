@@ -11,13 +11,14 @@ use winapi::um::winnt::{KEY_SET_VALUE, KEY_QUERY_VALUE, REG_SZ, HANDLE};
 use winapi::shared::minwindef::*;
 use winapi::shared::winerror::*;
 use crate::layout_manager;
+use crate::config;
 
 const MUTEX_NAME: &str = "Global\\CCapsLayoutSwitcherMutex";
 const REGISTRY_KEY: &str = "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run";
 const APP_NAME: &str = "CCaps Layout Switcher";
 
 pub enum CliCommand {
-    Start,
+    Start(Vec<String>), // Modified to include country codes
     Stop,
     Exit,
     Status,
@@ -37,7 +38,14 @@ pub fn parse_args() -> CliCommand {
     }
     
     match args[1].as_str() {
-        "-start" => CliCommand::Start,
+        "-start" => {
+            // Parse country codes after -start
+            let country_codes: Vec<String> = args[2..].iter()
+                .filter(|arg| arg.starts_with('-') && arg.len() > 1)
+                .map(|arg| arg[1..].to_string())
+                .collect();
+            CliCommand::Start(country_codes)
+        },
         "-stop" => CliCommand::Stop,
         "-exit" => CliCommand::Exit,
         "-status" => CliCommand::Status,
@@ -64,7 +72,7 @@ pub fn parse_args() -> CliCommand {
 
 pub fn execute_command(command: CliCommand) -> (i32, Vec<String>) {
     match command {
-        CliCommand::Start => (handle_start(), vec![]),
+        CliCommand::Start(country_codes) => (handle_start(&country_codes), vec![]),
         CliCommand::Stop => (handle_stop(), vec![]),
         CliCommand::Exit => (handle_exit(), vec![]),
         CliCommand::Status => (handle_status(), vec![]),
@@ -84,11 +92,19 @@ pub fn execute_command(command: CliCommand) -> (i32, Vec<String>) {
 }
 
 fn handle_background(country_codes: &[String]) -> i32 {
+    // Load configuration from file if no country codes provided
+    let final_country_codes = if country_codes.is_empty() {
+        let config = config::load_config();
+        config.country_codes
+    } else {
+        country_codes.to_vec()
+    };
+    
     // When running in the background, we only check autoload
     // but we don't install it again
     if !is_in_startup() {
         // If for some reason the autoload is missing, we add it
-        if let Err(e) = add_to_startup(country_codes) {
+        if let Err(e) = add_to_startup(&final_country_codes) {
             eprintln!("Warning: Could not ensure startup entry: {}", e);
         }
     }
@@ -114,6 +130,19 @@ fn handle_status() -> i32 {
         if let Ok(startup_path) = get_startup_path() {
             println!("Startup command:    {}", startup_path);
         }
+    }
+    
+    // Show configuration info
+    let config = config::load_config();
+    let (config_exists, config_path) = config::get_config_info();
+    println!("Configuration file: {}", if config_exists { "EXISTS ✓" } else { "NOT FOUND ✗" });
+    if let Some(path) = config_path {
+        println!("Config path:        {}", path);
+    }
+    if !config.country_codes.is_empty() {
+        println!("Saved country codes: {}", config.country_codes.join(", "));
+    } else {
+        println!("Saved country codes: [All layouts]");
     }
     
     println!();
@@ -145,10 +174,11 @@ fn handle_status() -> i32 {
     
     println!();
     println!("Usage examples:");
-    println!("  ccaps -run -ru     # Switch between English and Russian");
-    println!("  ccaps -run -ua     # Switch between English and Ukrainian"); 
-    println!("  ccaps -run -de -fr # Switch between German and French");
-    println!("  ccaps -start       # Start with all layouts (cycle through all)");
+    println!("  ccaps -run            # Run in foreground mode (cycle through all layouts)");
+    println!("  ccaps -run -de        # Switch between English and German");
+    println!("  ccaps -run -de -fr    # Switch between German and French");
+    println!("  ccaps -start          # Start with all layouts and add to auto-startup");
+    println!("  ccaps -start -de      # Start with German/English and add to auto-startup");
     println!();
     
     // Show recommendations
@@ -171,7 +201,7 @@ fn handle_status() -> i32 {
     0
 }
 
-fn handle_start() -> i32 {
+fn handle_start(country_codes: &[String]) -> i32 {
     println!("Starting CCaps Layout Switcher...");
     
     // Check if already running
@@ -180,15 +210,36 @@ fn handle_start() -> i32 {
         return 1;
     }
     
-    // Add to startup without specific country codes (cycle through all)
-    if let Err(e) = add_to_startup(&[]) {
+    // Validate country codes if provided
+    if !country_codes.is_empty() {
+        if let Err(error) = layout_manager::validate_country_codes(
+            &country_codes.iter().map(|s| s.as_str()).collect::<Vec<_>>()
+        ) {
+            eprintln!("Error: {}", error);
+            return 1;
+        }
+        println!("Using country codes: {}", country_codes.join(", "));
+    } else {
+        println!("Using all available layouts");
+    }
+    
+    // Save configuration
+    let config = config::Config::with_country_codes(country_codes.to_vec());
+    if let Err(e) = config::save_config(&config) {
+        eprintln!("Warning: Could not save configuration: {}", e);
+    } else {
+        println!("Configuration saved.");
+    }
+    
+    // Add to startup with country codes
+    if let Err(e) = add_to_startup(country_codes) {
         eprintln!("Warning: Could not add to startup: {}", e);
     } else {
         println!("Added to system startup.");
     }
     
     // Start in background (completely detached process)
-    if let Err(e) = start_background_process(&[]) {
+    if let Err(e) = start_background_process(country_codes) {
         eprintln!("Failed to start background process: {}", e);
         return 1;
     }
@@ -205,6 +256,13 @@ fn handle_stop() -> i32 {
         eprintln!("Warning: Could not remove from startup: {}", e);
     } else {
         println!("Removed from system startup.");
+    }
+    
+    // Delete configuration file
+    if let Err(e) = config::delete_config() {
+        eprintln!("Warning: Could not delete configuration: {}", e);
+    } else {
+        println!("Configuration deleted.");
     }
     
     // Stop running process
@@ -230,16 +288,16 @@ fn handle_exit() -> i32 {
 }
 
 fn show_help() {
-    println!("CCaps Layout Switcher v0.5.0");
+    println!("CCaps Layout Switcher v0.6.0");
     println!("Keyboard layout switcher using Caps Lock key");
     println!();
     println!("Usage:");
     println!("  ccaps              - Show interactive menu");
     println!("  ccaps -run         - Run in foreground mode (cycle through all layouts)");
-    println!("  ccaps -run -ru     - Run with English ↔ Russian switching");
-    println!("  ccaps -run -ua     - Run with English ↔ Ukrainian switching");
+    println!("  ccaps -run -de     - Run with English ↔ German switching");
     println!("  ccaps -run -de -fr - Run with German ↔ French switching");
-    println!("  ccaps -start       - Start in background and add to system startup");
+    println!("  ccaps -start       - Start in background with all layouts and add to auto-startup");
+    println!("  ccaps -start -de   - Start in background with German/English and add to auto-startup");
     println!("  ccaps -stop        - Stop background process and remove from startup");
     println!("  ccaps -exit        - Stop background process only");
     println!("  ccaps -status      - Show current status and available language codes");
@@ -250,9 +308,10 @@ fn show_help() {
     println!("  Alt + Caps Lock        - Toggle Caps Lock");
     println!("  Scroll Lock indicator  - Shows current layout (OFF=English, ON=Non-English)");
     println!();
-    println!("Country codes:");
+    println!("Configuration:");
+    println!("  Settings are automatically saved when using -start with country codes");
+    println!("  Configuration file: ccaps-config.json (in program directory)");
     println!("  Use 'ccaps -status' to see all available language codes");
-    println!("  If no codes specified, cycles through all installed layouts");
 }
 
 fn is_already_running() -> bool {
