@@ -26,11 +26,12 @@ pub fn show_interactive_menu() -> (i32, Vec<String>) {
                 match command {
                     CliCommand::Run(country_codes) => {
                         if country_codes.is_empty() {
+                            println!();
                             println!("Starting in foreground mode with all layouts...");
                         } else {
+                            println!();
                             println!("Starting in foreground mode with country codes: {}", country_codes.join(", "));
                         }
-                        println!(); // Extra line for better readability
                         // Don't install Ctrl+C handler here - let main.rs handle it
                         return (0, country_codes); // Return country codes to main
                     },
@@ -56,6 +57,7 @@ pub fn show_interactive_menu() -> (i32, Vec<String>) {
                         println!();
                     },
                     CliCommand::Unknown(ref cmd) if cmd == "quit" => {
+                        println!();
                         println!("Goodbye!");
                         return (1, vec![]);
                     },
@@ -103,7 +105,7 @@ fn show_menu() {
     println!("│  run -de       - Run with English ↔ German switching                       │");
     println!("│  run -de -fr   - Run with German ↔ French switching                        │");
     println!("│  start         - Start in background (all layouts) and add to auto-startup │");
-    println!("│  start -de     - Start in background (German/English) and auto-startup     │");
+    println!("│  start -de     - Start in background (English/German) and auto-startup     │");
     println!("│  stop          - Stop background process and remove from startup           │");
     println!("│  exit          - Stop background process only                              │");
     println!("│  status        - Show current status and available language codes          │");
@@ -140,14 +142,17 @@ fn parse_menu_command(input: &str) -> CliCommand {
                     &country_codes.iter().map(|s| s.as_str()).collect::<Vec<_>>()
                 ) {
                     Ok(_) => {
+                        println!();
                         println!("✓ Validated country codes: {}", country_codes.join(", "));
                     },
                     Err(error) => {
+                        println!();
                         println!("✗ Error: {}", error);
                         return CliCommand::Unknown(format!("Invalid codes: {}", input));
                     }
                 }
             } else {
+                println!();
                 println!("✓ Using all available layouts");
             }
             

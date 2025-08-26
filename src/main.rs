@@ -161,6 +161,7 @@ fn run_main_loop(country_codes: Vec<String>) {
                         }
                     }
                     
+                    println!();
                     println!("Press Ctrl+C to exit");
                     println!();
                 }

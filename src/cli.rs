@@ -65,7 +65,7 @@ pub fn parse_args() -> CliCommand {
                 .collect();
             CliCommand::Background(country_codes)
         },
-        "-help" | "--help" | "/?" => CliCommand::Help,
+        "-help" | "--help" | "-h" | "/?" => CliCommand::Help,
         _ => CliCommand::Unknown(args[1].clone()),
     }
 }
@@ -85,7 +85,7 @@ pub fn execute_command(command: CliCommand) -> (i32, Vec<String>) {
         },
         CliCommand::Unknown(cmd) => {
             eprintln!("Unknown command: {}", cmd);
-            show_help();
+            // show_help();
             (1, vec![])
         }
     }
@@ -178,7 +178,7 @@ fn handle_status() -> i32 {
     println!("  ccaps -run -de        # Switch between English and German");
     println!("  ccaps -run -de -fr    # Switch between German and French");
     println!("  ccaps -start          # Start with all layouts and add to auto-startup");
-    println!("  ccaps -start -de      # Start with German/English and add to auto-startup");
+    println!("  ccaps -start -de      # Start with English/German and add to auto-startup");
     println!();
     
     // Show recommendations
