@@ -312,6 +312,7 @@ fn show_help() {
     println!("  Settings are automatically saved when using -start with country codes");
     println!("  Configuration file: ccaps-config.json (in program directory)");
     println!("  Use 'ccaps -status' to see all available language codes");
+    println!();
 }
 
 fn is_already_running() -> bool {
