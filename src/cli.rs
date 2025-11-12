@@ -237,12 +237,21 @@ fn handle_start(country_codes: &[String]) -> i32 {
     } else {
         println!("Configuration saved.");
     }
-    
+
     // Add to startup with country codes
+    let already_in_startup = is_in_startup();
+    if already_in_startup {
+        println!("Already in system startup. Updating configuration...");
+    }
+
     if let Err(e) = add_to_startup(country_codes) {
         eprintln!("Warning: Could not add to startup: {}", e);
     } else {
-        println!("Added to system startup.");
+        if already_in_startup {
+            println!("System startup configuration updated.");
+        } else {
+            println!("Added to system startup.");
+        }
     }
     
     // Start in background (completely detached process)
