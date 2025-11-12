@@ -2,6 +2,7 @@ use std::env;
 use std::ptr;
 use std::ffi::OsString;
 use std::os::windows::ffi::OsStrExt;
+use std::io::{self, Write};
 use winapi::um::winuser::*;
 use winapi::um::winreg::*;
 use winapi::um::handleapi::CloseHandle;
@@ -254,42 +255,72 @@ fn handle_start(country_codes: &[String]) -> i32 {
     0
 }
 
+fn ask_confirmation(prompt: &str) -> bool {
+    ask_confirmation_with_reader(prompt, &mut io::stdin().lock())
+}
+
+fn ask_confirmation_with_reader<R: io::BufRead>(prompt: &str, reader: &mut R) -> bool {
+    print!("{} [y/n]: ", prompt);
+    io::stdout().flush().unwrap();
+
+    let mut input = String::new();
+    match reader.read_line(&mut input) {
+        Ok(_) => {
+            let trimmed = input.trim().to_lowercase();
+            trimmed == "y" || trimmed == "yes"
+        }
+        Err(_) => false,
+    }
+}
+
 fn handle_stop() -> i32 {
     println!("Stopping CCaps Layout Switcher...");
-    
+
+    // Ask for confirmation
+    if !ask_confirmation("Are you sure you want to stop CCaps and remove it from startup?") {
+        println!("Operation cancelled.");
+        return 0;
+    }
+
     // Remove from startup
     if let Err(e) = remove_from_startup() {
         eprintln!("Warning: Could not remove from startup: {}", e);
     } else {
         println!("Removed from system startup.");
     }
-    
+
     // Delete configuration file
     if let Err(e) = config::delete_config() {
         eprintln!("Warning: Could not delete configuration: {}", e);
     } else {
         println!("Configuration deleted.");
     }
-    
+
     // Stop running process
     if stop_background_process() {
         println!("Background process stopped.");
     } else {
         println!("No background process was running.");
     }
-    
+
     0
 }
 
 fn handle_exit() -> i32 {
     println!("Exiting CCaps Layout Switcher...");
-    
+
+    // Ask for confirmation
+    if !ask_confirmation("Are you sure you want to stop the background process?") {
+        println!("Operation cancelled.");
+        return 0;
+    }
+
     if stop_background_process() {
         println!("Background process stopped.");
     } else {
         println!("No background process was running.");
     }
-    
+
     0
 }
 
@@ -611,4 +642,90 @@ pub fn create_mutex() -> HANDLE {
 pub fn should_run_in_background() -> bool {
     let args: Vec<String> = env::args().collect();
     args.len() > 1 && (args[1] == "--background")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Cursor;
+
+    #[test]
+    fn test_ask_confirmation_yes() {
+        let input = "y\n";
+        let mut reader = Cursor::new(input);
+        let result = ask_confirmation_with_reader("Test prompt", &mut reader);
+        assert!(result, "Expected confirmation with 'y' to return true");
+    }
+
+    #[test]
+    fn test_ask_confirmation_yes_uppercase() {
+        let input = "Y\n";
+        let mut reader = Cursor::new(input);
+        let result = ask_confirmation_with_reader("Test prompt", &mut reader);
+        assert!(result, "Expected confirmation with 'Y' to return true");
+    }
+
+    #[test]
+    fn test_ask_confirmation_yes_full() {
+        let input = "yes\n";
+        let mut reader = Cursor::new(input);
+        let result = ask_confirmation_with_reader("Test prompt", &mut reader);
+        assert!(result, "Expected confirmation with 'yes' to return true");
+    }
+
+    #[test]
+    fn test_ask_confirmation_yes_full_uppercase() {
+        let input = "YES\n";
+        let mut reader = Cursor::new(input);
+        let result = ask_confirmation_with_reader("Test prompt", &mut reader);
+        assert!(result, "Expected confirmation with 'YES' to return true");
+    }
+
+    #[test]
+    fn test_ask_confirmation_no() {
+        let input = "n\n";
+        let mut reader = Cursor::new(input);
+        let result = ask_confirmation_with_reader("Test prompt", &mut reader);
+        assert!(!result, "Expected confirmation with 'n' to return false");
+    }
+
+    #[test]
+    fn test_ask_confirmation_no_uppercase() {
+        let input = "N\n";
+        let mut reader = Cursor::new(input);
+        let result = ask_confirmation_with_reader("Test prompt", &mut reader);
+        assert!(!result, "Expected confirmation with 'N' to return false");
+    }
+
+    #[test]
+    fn test_ask_confirmation_no_full() {
+        let input = "no\n";
+        let mut reader = Cursor::new(input);
+        let result = ask_confirmation_with_reader("Test prompt", &mut reader);
+        assert!(!result, "Expected confirmation with 'no' to return false");
+    }
+
+    #[test]
+    fn test_ask_confirmation_invalid_input() {
+        let input = "maybe\n";
+        let mut reader = Cursor::new(input);
+        let result = ask_confirmation_with_reader("Test prompt", &mut reader);
+        assert!(!result, "Expected confirmation with invalid input to return false");
+    }
+
+    #[test]
+    fn test_ask_confirmation_empty_input() {
+        let input = "\n";
+        let mut reader = Cursor::new(input);
+        let result = ask_confirmation_with_reader("Test prompt", &mut reader);
+        assert!(!result, "Expected confirmation with empty input to return false");
+    }
+
+    #[test]
+    fn test_ask_confirmation_with_whitespace() {
+        let input = "  y  \n";
+        let mut reader = Cursor::new(input);
+        let result = ask_confirmation_with_reader("Test prompt", &mut reader);
+        assert!(result, "Expected confirmation with 'y' surrounded by whitespace to return true");
+    }
 }
