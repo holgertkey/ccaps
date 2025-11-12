@@ -2,6 +2,23 @@
 name = "ccaps"
 version = "0.6.0"
 edition = "2021"
+authors = ["holgertkey"]
+description = "A lightweight Windows keyboard layout switcher that repurposes the Caps Lock key for quick layout switching"
+license = "MIT"
+repository = "https://github.com/holgertkey/ccaps"
+homepage = "https://github.com/holgertkey/ccaps"
+documentation = "https://github.com/holgertkey/ccaps#readme"
+readme = "README.md"
+keywords = ["keyboard", "layout", "windows", "caps-lock", "switcher"]
+categories = ["command-line-utilities", "os::windows-apis"]
+rust-version = "1.70"
+exclude = [
+    ".git*",
+    ".vscode/",
+    "target/",
+    "*.json",
+    "!Cargo.lock"
+]
 
 [dependencies]
 winapi = { version = "0.3", features = [
