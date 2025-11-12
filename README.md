@@ -34,6 +34,7 @@ ccaps -stop        # Stop background process + remove from startup + delete conf
 ccaps -exit        # Stop background process only
 ccaps -status      # Show status and available language codes
 ccaps -help        # Show help information
+ccaps -v           # Show version information
 
 # Country-specific switching
 ccaps -run -de     # English ↔ German switching

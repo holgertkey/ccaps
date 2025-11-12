@@ -26,6 +26,7 @@ pub enum CliCommand {
     Menu, // Interactive menu (no parameters)
     Background(Vec<String>), // Internal command for background process with country codes
     Help,
+    Version,
     Unknown(String),
 }
 
@@ -66,6 +67,7 @@ pub fn parse_args() -> CliCommand {
             CliCommand::Background(country_codes)
         },
         "-help" | "--help" | "-h" | "/?" => CliCommand::Help,
+        "-v" | "--version" => CliCommand::Version,
         _ => CliCommand::Unknown(args[1].clone()),
     }
 }
@@ -81,6 +83,10 @@ pub fn execute_command(command: CliCommand) -> (i32, Vec<String>) {
         CliCommand::Menu => (0, vec![]), // This should not be called directly
         CliCommand::Help => {
             show_help();
+            (0, vec![])
+        },
+        CliCommand::Version => {
+            show_version();
             (0, vec![])
         },
         CliCommand::Unknown(cmd) => {
@@ -287,8 +293,12 @@ fn handle_exit() -> i32 {
     0
 }
 
+fn show_version() {
+    println!("CCaps Layout Switcher v{}", env!("CARGO_PKG_VERSION"));
+}
+
 fn show_help() {
-    println!("CCaps Layout Switcher v0.6.0");
+    println!("CCaps Layout Switcher v{}", env!("CARGO_PKG_VERSION"));
     println!("Keyboard layout switcher using Caps Lock key");
     println!();
     println!("Usage:");
@@ -302,6 +312,7 @@ fn show_help() {
     println!("  ccaps -exit        - Stop background process only");
     println!("  ccaps -status      - Show current status and available language codes");
     println!("  ccaps -help        - Show this help");
+    println!("  ccaps -v           - Show version information");
     println!();
     println!("Key bindings:");
     println!("  Caps Lock              - Switch keyboard layout");
