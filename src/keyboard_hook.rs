@@ -13,14 +13,12 @@ static mut HOOK: HHOOK = ptr::null_mut();
 
 // Structure for passing data to the hook
 struct HookData {
-    alt_pressed: bool,
     selected_layouts: Vec<LayoutInfo>,
     current_layout_index: usize,
 }
 
 // Use a Mutex to protect the hook data
 static HOOK_DATA: Mutex<HookData> = Mutex::new(HookData {
-    alt_pressed: false,
     selected_layouts: Vec::new(),
     current_layout_index: 0,
 });
@@ -77,36 +75,27 @@ unsafe extern "system" fn low_level_keyboard_proc(
         if n_code >= 0 {
             let kb_struct = *(l_param as *const KBDLLHOOKSTRUCT);
             let vk_code = kb_struct.vkCode;
-            
-            // Track Alt key state
-            if vk_code == VK_MENU as u32 {
-                if let Ok(mut hook_data) = HOOK_DATA.lock() {
-                    if w_param == WM_KEYDOWN as usize || w_param == WM_SYSKEYDOWN as usize {
-                        hook_data.alt_pressed = true;
-                    } else if w_param == WM_KEYUP as usize || w_param == WM_SYSKEYUP as usize {
-                        hook_data.alt_pressed = false;
-                    }
-                }
-            }
-            
+
             // Handle Caps Lock press
             if vk_code == VK_CAPITAL as u32 && (w_param == WM_KEYDOWN as usize) {
-                if let Ok(hook_data) = HOOK_DATA.lock() {
-                    if hook_data.alt_pressed {
-                        // Alt + Caps Lock: toggle Caps Lock functionality
-                        drop(hook_data); // Release lock before calling toggle_caps_lock
-                        toggle_caps_lock();
-                    } else {
-                        // Caps Lock only: switch keyboard layout
-                        drop(hook_data); // Release lock before calling switch_keyboard_layout
-                        switch_keyboard_layout();
-                    }
+                // Check real-time Alt key state using GetAsyncKeyState
+                // This prevents desynchronization issues when Alt state changes during window switching
+                let alt_state = GetAsyncKeyState(VK_MENU);
+                let is_alt_pressed = (alt_state & 0x8000u16 as i16) != 0;
+
+                if is_alt_pressed {
+                    // Alt + Caps Lock: toggle Caps Lock functionality
+                    toggle_caps_lock();
+                } else {
+                    // Caps Lock only: switch keyboard layout
+                    switch_keyboard_layout();
                 }
+
                 // Block default Caps Lock processing
                 return 1;
             }
         }
-        
+
         CallNextHookEx(HOOK, n_code, w_param, l_param)
     }
 }

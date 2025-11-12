@@ -85,7 +85,7 @@ pub fn show_interactive_menu() -> (i32, Vec<String>) {
 
 fn show_status() {
     println!("╔══════════════════════════════════════════════════════════════════════════════╗");
-    println!("║                        CCaps Layout Switcher v0.6.0                          ║");
+    println!("║                        CCaps Layout Switcher v0.7.0                          ║");
     println!("║                 Keyboard layout switcher using Caps Lock key                 ║");
     println!("╚══════════════════════════════════════════════════════════════════════════════╝");
     println!();
