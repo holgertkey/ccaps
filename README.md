@@ -319,10 +319,16 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Changelog
 
+See [CHANGELOG.md](CHANGELOG.md) for detailed version history.
+
 ### v0.7.0
 - 🐛 Fixed sporadic Caps Lock LED activation during window switching and system startup
 - 🔧 Improved Alt key state detection using real-time polling instead of event tracking
 - 🔧 Removed dependency on Alt key state caching to prevent desynchronization
+- ✨ Added confirmation prompts [y/n] for `-exit` and `-stop` commands to prevent accidental termination
+- ✨ Added startup check in `-start` command to detect existing auto-startup entries
+- 🔧 Improved user feedback messages when running `-start` (shows "Updating configuration..." vs "Added to startup")
+- ✅ Added comprehensive unit tests for confirmation functionality (10 test cases)
 
 ### v0.6.0
 - ✨ Added configuration persistence with JSON file
