@@ -132,7 +132,8 @@ Status: All systems operational ✓
 
 CCaps automatically saves your layout preferences when using `-start` with country codes:
 
-- **Configuration file**: `ccaps-config.json` (created in the program directory)
+- **Configuration file**: `ccaps-config.json` (stored in `%LOCALAPPDATA%\CCaps\`)
+- **Typical location**: `C:\Users\<username>\AppData\Local\CCaps\ccaps-config.json`
 - **Auto-restore**: Background process automatically loads saved preferences
 - **JSON format**: Human-readable configuration file
 
@@ -254,7 +255,7 @@ The executable will be created at `target/release/ccaps.exe`.
 - **Windows APIs**: WinAPI (winuser, winreg, synchapi, fileapi)
 - **Hook Type**: Low-level keyboard hook (WH_KEYBOARD_LL)
 - **Registry**: Uses `HKEY_CURRENT_USER\SOFTWARE\Microsoft\Windows\CurrentVersion\Run`
-- **Configuration**: JSON file in program directory
+- **Configuration**: JSON file in `%LOCALAPPDATA%\CCaps\`
 - **Mutex**: Global mutex prevents multiple instances
 - **Layout Detection**: Language ID extraction from HKL handles
 
@@ -329,6 +330,8 @@ See [CHANGELOG.md](CHANGELOG.md) for detailed version history.
 - ✨ Added startup check in `-start` command to detect existing auto-startup entries
 - 🔧 Improved user feedback messages when running `-start` (shows "Updating configuration..." vs "Added to startup")
 - ✅ Added comprehensive unit tests for confirmation functionality (10 test cases)
+- 📁 Moved configuration file to AppData directory (`%LOCALAPPDATA%\CCaps\ccaps-config.json`)
+- 🐛 Fixed terminal minimizing issue when running `-start` command (now uses `CREATE_NO_WINDOW` flag)
 
 ### v0.6.0
 - ✨ Added configuration persistence with JSON file
