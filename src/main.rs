@@ -221,13 +221,9 @@ fn run_main_loop(country_codes: Vec<String>) {
 
 // Simplified function to detach from console
 unsafe fn detach_from_console() {
-    // Hiding the console window
-    let console_window = GetConsoleWindow();
-    if !console_window.is_null() {
-        ShowWindow(console_window, SW_HIDE);
-    }
-    
     // Unbind from the parent process console
+    // Note: We don't hide the console window because the background process
+    // is started with CREATE_NO_WINDOW flag, so it doesn't have a console window to hide
     FreeConsole();
 }
 

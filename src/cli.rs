@@ -595,24 +595,29 @@ fn remove_from_startup() -> Result<(), String> {
 
 fn start_background_process(country_codes: &[String]) -> Result<(), String> {
     use std::process::Command;
-    
+    use std::os::windows::process::CommandExt;
+
     let exe_path = env::current_exe()
         .map_err(|_| "Failed to get executable path")?;
 
     let mut command = Command::new(&exe_path);
     command.arg("--background");
-    
+
     // Add country codes to the background process
     for code in country_codes {
         command.arg(&format!("-{}", code));
     }
 
-    // Simple launch without additional flags
+    // Use CREATE_NO_WINDOW flag to prevent creating a console window
+    // This ensures the background process doesn't affect the parent terminal
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+    command.creation_flags(CREATE_NO_WINDOW);
+
     match command.spawn() {
         Ok(child) => {
             // Get the PID of the child process
             let _pid = child.id();
-            
+
             // Unbind the child process - don't wait for it to complete
             std::mem::forget(child);
             Ok(())
