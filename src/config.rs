@@ -27,22 +27,22 @@ impl Config {
     }
 }
 
-// Get the path to the configuration file
+// Get the path to the configuration file in AppData
 pub fn get_config_path() -> Result<PathBuf, String> {
-    // Try to get the directory of the current executable
-    match env::current_exe() {
-        Ok(exe_path) => {
-            if let Some(exe_dir) = exe_path.parent() {
-                Ok(exe_dir.join(CONFIG_FILE_NAME))
-            } else {
-                Err("Cannot determine executable directory".to_string())
-            }
-        },
-        Err(_) => {
-            // Fallback to current directory
-            Ok(PathBuf::from(CONFIG_FILE_NAME))
-        }
+    // Use LOCALAPPDATA for application-specific data
+    let app_data = env::var("LOCALAPPDATA")
+        .or_else(|_| env::var("APPDATA"))
+        .map_err(|_| "Cannot determine AppData directory".to_string())?;
+
+    let config_dir = PathBuf::from(app_data).join("CCaps");
+
+    // Create the directory if it doesn't exist
+    if !config_dir.exists() {
+        fs::create_dir_all(&config_dir)
+            .map_err(|e| format!("Cannot create config directory: {}", e))?;
     }
+
+    Ok(config_dir.join(CONFIG_FILE_NAME))
 }
 
 // Load configuration from file
