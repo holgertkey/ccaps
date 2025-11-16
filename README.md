@@ -301,20 +301,6 @@ ccaps -start -de    # or your preferred layout codes
 - Check available codes with: `ccaps -status`
 - Verify layouts in Settings → Time & Language → Language → Preferred languages
 
-## Migration from v0.5.0
-
-Version 0.6.0 introduces configuration persistence:
-
-- **Backward compatible**: All v0.5.0 commands work the same
-- **New feature**: `ccaps -start -de` now saves the preference
-- **Enhanced**: Background process remembers your layout choices
-- **Improved**: `ccaps -status` shows configuration information
-
-### Migration Steps
-1. Update to v0.6.0
-2. Run `ccaps -start` with your preferred country codes
-3. The program will automatically save and restore your preferences
-
 ## Uninstall
 
 ```bash
@@ -332,8 +318,6 @@ del ccaps.exe
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## Changelog
-
-See [CHANGELOG.md](CHANGELOG.md) for detailed version history.
 
 ### v0.7.0
 - 🐛 Fixed sporadic Caps Lock LED activation during window switching and system startup
