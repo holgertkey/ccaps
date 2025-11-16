@@ -74,6 +74,18 @@ ccaps
 ```
 Shows a menu with all available options and current system status.
 
+**Available commands in interactive mode:**
+- `run` - Run in foreground mode (all layouts)
+- `run -de` - Run with specific layouts (e.g., English ↔ German)
+- `start` - Start in background with all layouts and add to auto-startup
+- `start -de` - Start in background with specific layouts and auto-startup
+- `stop` - Stop background process and remove from startup
+- `exit` - Stop background process only
+- `status` - Show current status and available language codes
+- `help` - Show detailed help
+- `menu` - Show menu again
+- `quit` or `q` - Exit interactive menu
+
 ### 2. Switch Between English and German
 ```bash
 ccaps -run -de
@@ -200,6 +212,7 @@ ccaps
 # Choose from menu:
 # start -de     # This saves the preference and starts background process
 # run -de       # This only runs temporarily without saving
+# q             # Quick exit from interactive menu
 ```
 
 ### Registry Integration
@@ -332,6 +345,7 @@ See [CHANGELOG.md](CHANGELOG.md) for detailed version history.
 - ✅ Added comprehensive unit tests for confirmation functionality (10 test cases)
 - 📁 Moved configuration file to AppData directory (`%LOCALAPPDATA%\CCaps\ccaps-config.json`)
 - 🐛 Fixed terminal minimizing issue when running `-start` command (now uses `CREATE_NO_WINDOW` flag)
+- ✨ Added `q` command as a shortcut for `quit` in interactive menu
 
 ### v0.6.0
 - ✨ Added configuration persistence with JSON file
