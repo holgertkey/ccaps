@@ -56,7 +56,7 @@ pub fn show_interactive_menu() -> (i32, Vec<String>) {
                         show_menu(); // Show menu again
                         println!();
                     },
-                    CliCommand::Unknown(ref cmd) if cmd == "quit" => {
+                    CliCommand::Unknown(ref cmd) if cmd == "quit" || cmd == "q" => {
                         println!();
                         println!("Goodbye!");
                         return (1, vec![]);
@@ -111,7 +111,7 @@ fn show_menu() {
     println!("│  status        - Show current status and available language codes          │");
     println!("│  help          - Show detailed help                                        │");
     println!("│  menu          - Show this menu again                                      │");
-    println!("│  quit          - Exit this menu                                            │");
+    println!("│  quit (q)      - Exit this menu                                            │");
     println!("└────────────────────────────────────────────────────────────────────────────┘");
     println!();
     println!("Key bindings when running:");
@@ -189,7 +189,7 @@ fn parse_menu_command(input: &str) -> CliCommand {
         "status" => CliCommand::Status,
         "help" => CliCommand::Help,
         "menu" => CliCommand::Unknown("menu".to_string()),
-        "quit" => CliCommand::Unknown("quit".to_string()),
+        "quit" | "q" => CliCommand::Unknown("quit".to_string()),
         _ => CliCommand::Unknown(input.to_string()),
     }
 }
