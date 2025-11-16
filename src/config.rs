@@ -4,6 +4,7 @@ use std::env;
 use serde::{Deserialize, Serialize};
 
 const CONFIG_FILE_NAME: &str = "ccaps-config.json";
+const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct Config {
@@ -15,14 +16,14 @@ impl Config {
     pub fn new() -> Self {
         Config {
             country_codes: Vec::new(),
-            version: "0.7.0".to_string(),
+            version: CURRENT_VERSION.to_string(),
         }
     }
 
     pub fn with_country_codes(country_codes: Vec<String>) -> Self {
         Config {
             country_codes,
-            version: "0.7.0".to_string(),
+            version: CURRENT_VERSION.to_string(),
         }
     }
 }
@@ -54,7 +55,7 @@ pub fn load_config() -> Config {
                     match serde_json::from_str::<Config>(&content) {
                         Ok(config) => {
                             // Validate that the config has the correct version or is compatible
-                            if config.version == "0.7.0" || config.version == "0.6.0" || config.version.starts_with("0.") {
+                            if config.version == CURRENT_VERSION || config.version == "0.6.0" || config.version.starts_with("0.") {
                                 return config;
                             } else {
                                 eprintln!("Warning: Config version mismatch, using defaults");

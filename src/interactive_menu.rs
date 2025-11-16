@@ -84,8 +84,10 @@ pub fn show_interactive_menu() -> (i32, Vec<String>) {
 }
 
 fn show_status() {
+    let version = env!("CARGO_PKG_VERSION");
+    let title = format!("CCaps Layout Switcher v{}", version);
     println!("╔══════════════════════════════════════════════════════════════════════════════╗");
-    println!("║                        CCaps Layout Switcher v0.7.0                          ║");
+    println!("║{:^78}║", title);
     println!("║                 Keyboard layout switcher using Caps Lock key                 ║");
     println!("╚══════════════════════════════════════════════════════════════════════════════╝");
     println!();
