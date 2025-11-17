@@ -16,6 +16,16 @@ A lightweight Windows keyboard layout switcher that repurposes the Caps Lock key
 
 ## Installation
 
+### Option 1: Install from crates.io (Recommended)
+
+```bash
+cargo install ccaps
+```
+
+This will download, compile, and install the latest version of CCaps. The executable will be placed in your Cargo bin directory (usually `~/.cargo/bin/` or `%USERPROFILE%\.cargo\bin\`).
+
+### Option 2: Download Pre-built Binary
+
 1. Download the latest release from the [Releases](../../releases) page
 2. Extract `ccaps.exe` to any folder (e.g., `C:\Program Files\CCaps\`)
 3. Run the program using command line options
