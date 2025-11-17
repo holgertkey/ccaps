@@ -45,20 +45,20 @@ ccaps -run -de -fr # German ↔ French switching (no English)
 
 Use `ccaps -status` to see all available language codes for your system. Common codes include:
 
-| Code | Language | Code | Language | Code | Language |
-|------|----------|------|----------|------|----------|
-| `us` | English (US) | `ru` | Russian | `ua` | Ukrainian |
-| `gb` | English (UK) | `de` | German | `fr` | French |
-| `es` | Spanish | `it` | Italian | `pl` | Polish |
-| `pt` | Portuguese | `nl` | Dutch | `cz` | Czech |
-| `jp` | Japanese | `kr` | Korean | `cn` | Chinese |
+| Code | Language       | Code | Language   | Code | Language   |
+|------|----------------|------|------------|------|------------|
+| `us` | English (US)   | `ru` | Russian    | `ua` | Ukrainian  |
+| `gb` | English (UK)   | `de` | German     | `fr` | French     |
+| `es` | Spanish        | `it` | Italian    | `pl` | Polish     |
+| `pt` | Portuguese     | `nl` | Dutch      | `cz` | Czech      |
+| `jp` | Japanese       | `kr` | Korean     | `cn` | Chinese    |
 
 ### Key Bindings
 
-| Key Combination | Action |
-|-----------------|--------|
-| `Caps Lock` | Switch to next keyboard layout |
-| `Alt + Caps Lock` | Toggle Caps Lock on/off |
+| Key Combination   | Action                          |
+|-------------------|---------------------------------|
+| `Caps Lock`       | Switch to next keyboard layout  |
+| `Alt + Caps Lock` | Toggle Caps Lock on/off         |
 
 ### Visual Indicator
 
