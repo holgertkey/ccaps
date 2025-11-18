@@ -59,12 +59,26 @@ pub fn get_current_layout() -> Option<LayoutInfo> {
     unsafe {
         let hwnd = GetForegroundWindow();
         if hwnd.is_null() {
-            return None;
+            // Fallback: get layout for current thread if no foreground window
+            return get_current_thread_layout();
         }
-        
+
         let thread_id = GetWindowThreadProcessId(hwnd, ptr::null_mut());
         let current_layout = GetKeyboardLayout(thread_id);
-        
+
+        Some(LayoutInfo::new(current_layout))
+    }
+}
+
+pub fn get_current_thread_layout() -> Option<LayoutInfo> {
+    unsafe {
+        // Get keyboard layout for the current thread (0 = calling thread)
+        // This works reliably even at startup when there's no foreground window
+        let current_layout = GetKeyboardLayout(0);
+        if current_layout.is_null() {
+            return None;
+        }
+
         Some(LayoutInfo::new(current_layout))
     }
 }

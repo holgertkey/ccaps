@@ -64,16 +64,22 @@ unsafe fn is_english_layout() -> bool {
     unsafe {
         // Get active window
         let hwnd = GetForegroundWindow();
-        if hwnd.is_null() {
+
+        // Get current layout handle
+        let current_layout = if hwnd.is_null() {
+            // Fallback: get layout for current thread if no foreground window
+            // This is more reliable during program startup
+            GetKeyboardLayout(0)
+        } else {
+            // Get window thread ID and its layout
+            let thread_id = GetWindowThreadProcessId(hwnd, ptr::null_mut());
+            GetKeyboardLayout(thread_id)
+        };
+
+        if current_layout.is_null() {
             return false;
         }
-        
-        // Get window thread ID
-        let thread_id = GetWindowThreadProcessId(hwnd, ptr::null_mut());
-        
-        // Get current layout
-        let current_layout = GetKeyboardLayout(thread_id);
-        
+
         is_english_layout_hkl(current_layout)
     }
 }
@@ -108,12 +114,12 @@ pub unsafe fn get_current_layout_info() -> (String, bool) {
         if hwnd.is_null() {
             return ("Unknown".to_string(), false);
         }
-        
+
         let thread_id = GetWindowThreadProcessId(hwnd, ptr::null_mut());
         let current_layout = GetKeyboardLayout(thread_id);
         let lang_id = (current_layout as usize) & 0xFFFF;
         let is_english = is_english_layout_hkl(current_layout);
-        
+
         let layout_name = match lang_id {
             0x0409 => "English (US)",
             0x0809 => "English (UK)",
@@ -126,7 +132,111 @@ pub unsafe fn get_current_layout_info() -> (String, bool) {
             0x0415 => "Polish",
             _ => "Other",
         };
-        
+
         (format!("{} (0x{:04X})", layout_name, lang_id), is_english)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Helper function to create a fake HKL from a language ID
+    fn create_test_hkl(lang_id: usize) -> HKL {
+        lang_id as HKL
+    }
+
+    #[test]
+    fn test_english_us_layout_detection() {
+        unsafe {
+            let hkl = create_test_hkl(0x0409);
+            assert!(is_english_layout_hkl(hkl), "English (US) should be detected as English");
+        }
+    }
+
+    #[test]
+    fn test_english_uk_layout_detection() {
+        unsafe {
+            let hkl = create_test_hkl(0x0809);
+            assert!(is_english_layout_hkl(hkl), "English (UK) should be detected as English");
+        }
+    }
+
+    #[test]
+    fn test_english_variants_detection() {
+        unsafe {
+            // Test various English language variants
+            let english_variants = vec![
+                (0x0409, "US"),
+                (0x0809, "UK"),
+                (0x0c09, "Australia"),
+                (0x1009, "Canada"),
+                (0x1409, "New Zealand"),
+                (0x1809, "Ireland"),
+                (0x1c09, "South Africa"),
+            ];
+
+            for (lang_id, country) in english_variants {
+                let hkl = create_test_hkl(lang_id);
+                assert!(
+                    is_english_layout_hkl(hkl),
+                    "English ({}) layout 0x{:04X} should be detected as English",
+                    country,
+                    lang_id
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_non_english_layout_detection() {
+        unsafe {
+            // Test that non-English layouts are correctly identified
+            let non_english_layouts = vec![
+                (0x0419, "Russian"),
+                (0x0407, "German"),
+                (0x040c, "French"),
+                (0x0410, "Italian"),
+                (0x040a, "Spanish"),
+                (0x0415, "Polish"),
+                (0x0422, "Ukrainian"),
+            ];
+
+            for (lang_id, language) in non_english_layouts {
+                let hkl = create_test_hkl(lang_id);
+                assert!(
+                    !is_english_layout_hkl(hkl),
+                    "{} layout 0x{:04X} should NOT be detected as English",
+                    language,
+                    lang_id
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_layout_hkl_language_id_extraction() {
+        unsafe {
+            // Test that language ID is correctly extracted from HKL
+            // HKL format: lower 16 bits = language ID, upper 16 bits = device handle
+
+            // Create HKL with device handle in upper bits
+            let lang_id = 0x0409; // English (US)
+            let device_handle = 0xABCD;
+            let hkl = ((device_handle << 16) | lang_id) as HKL;
+
+            // Language ID should still be correctly extracted
+            let extracted_lang_id = (hkl as usize) & 0xFFFF;
+            assert_eq!(extracted_lang_id, lang_id, "Language ID should be correctly extracted from HKL");
+            assert!(is_english_layout_hkl(hkl), "English layout should be detected even with device handle");
+        }
+    }
+
+    #[test]
+    fn test_zero_hkl() {
+        unsafe {
+            let hkl = create_test_hkl(0x0000);
+            assert!(!is_english_layout_hkl(hkl), "Zero HKL should not be detected as English");
+        }
     }
 }
