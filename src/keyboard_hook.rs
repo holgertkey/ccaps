@@ -65,6 +65,9 @@ pub fn initialize_layout_switching(country_codes: &[String]) {
     }
 }
 
+// Flag indicating injected event (from SendInput)
+const LLKHF_INJECTED: u32 = 0x00000010;
+
 // Callback function for handling key presses
 unsafe extern "system" fn low_level_keyboard_proc(
     n_code: i32,
@@ -76,23 +79,40 @@ unsafe extern "system" fn low_level_keyboard_proc(
             let kb_struct = *(l_param as *const KBDLLHOOKSTRUCT);
             let vk_code = kb_struct.vkCode;
 
-            // Handle Caps Lock press
-            if vk_code == VK_CAPITAL as u32 && (w_param == WM_KEYDOWN as usize) {
-                // Check real-time Alt key state using GetAsyncKeyState
-                // This prevents desynchronization issues when Alt state changes during window switching
-                let alt_state = GetAsyncKeyState(VK_MENU);
-                let is_alt_pressed = (alt_state & 0x8000u16 as i16) != 0;
-
-                if is_alt_pressed {
-                    // Alt + Caps Lock: toggle Caps Lock functionality
-                    toggle_caps_lock();
-                } else {
-                    // Caps Lock only: switch keyboard layout
-                    switch_keyboard_layout();
+            // Check if this is CapsLock
+            if vk_code == VK_CAPITAL as u32 {
+                // Allow injected events (from our own SendInput calls) to pass through
+                // This is needed for toggle_caps_lock() and sync_caps_lock_led() to work
+                if (kb_struct.flags & LLKHF_INJECTED) != 0 {
+                    return CallNextHookEx(HOOK, n_code, w_param, l_param);
                 }
 
-                // Block default Caps Lock processing
-                return 1;
+                // Handle Caps Lock press (both normal and system key events)
+                // WM_SYSKEYDOWN occurs when Alt is held or when system thinks Alt is held
+                // (which can happen during Windows startup due to key state desynchronization)
+                if w_param == WM_KEYDOWN as usize || w_param == WM_SYSKEYDOWN as usize {
+                    // Check real-time Alt key state using GetAsyncKeyState
+                    // This prevents desynchronization issues when Alt state changes during window switching
+                    let alt_state = GetAsyncKeyState(VK_MENU);
+                    let is_alt_pressed = (alt_state & 0x8000u16 as i16) != 0;
+
+                    if is_alt_pressed {
+                        // Alt + Caps Lock: toggle Caps Lock functionality
+                        toggle_caps_lock();
+                    } else {
+                        // Caps Lock only: switch keyboard layout
+                        switch_keyboard_layout();
+                    }
+
+                    // Block default Caps Lock processing
+                    return 1;
+                }
+
+                // Also block Caps Lock key release to prevent any residual toggle
+                // This ensures complete blocking of CapsLock functionality
+                if w_param == WM_KEYUP as usize || w_param == WM_SYSKEYUP as usize {
+                    return 1;
+                }
             }
         }
 

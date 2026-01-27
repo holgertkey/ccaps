@@ -1,4 +1,4 @@
-# CCaps Layout Switcher v0.7.1
+# CCaps Layout Switcher v0.7.2
 
 A lightweight Windows keyboard layout switcher that repurposes the Caps Lock key for quick layout switching with country-specific filtering and configuration persistence.
 
@@ -328,6 +328,13 @@ del ccaps.exe
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## Changelog
+
+### v0.7.2
+- 🐛 Fixed sporadic CapsLock LED activation during Windows startup
+- 🔧 Added WM_SYSKEYDOWN handling to block CapsLock events when Alt state is desynchronized
+- 🔧 Added complete blocking of CapsLock key release events (WM_KEYUP/WM_SYSKEYUP)
+- 🔧 Added CapsLock LED synchronization at program startup to fix LED/state desync
+- 🔧 Improved SendInput handling by allowing injected events to pass through the hook
 
 ### v0.7.1
 - 🐛 Fixed Scroll Lock indicator not being set correctly at autostart when non-English layout is active
