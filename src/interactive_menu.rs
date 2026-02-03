@@ -118,7 +118,7 @@ fn show_menu() {
     println!();
     println!("Key bindings when running:");
     println!("  Caps Lock              - Switch keyboard layout");
-    println!("  Alt + Caps Lock        - Toggle Caps Lock");
+    println!("  Shift + Caps Lock      - Toggle Caps Lock");
     println!("  Scroll Lock indicator  - Shows current layout (OFF=English, ON=Non-English)");
     println!();
 }

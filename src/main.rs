@@ -119,7 +119,7 @@ fn run_main_loop(country_codes: Vec<String>) {
         println!("═══════════════════════════════════════════════════");
         println!("       Caps Lock Layout Switcher started!          ");
         println!("═══════════════════════════════════════════════════");
-        println!("Alt + Caps Lock - toggle Caps Lock");
+        println!("Shift + Caps Lock - toggle Caps Lock");
         println!("Scroll Lock indicator shows current layout:");
         println!("  OFF = English layout");
         println!("  ON  = Non-English layout");

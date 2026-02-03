@@ -1,4 +1,4 @@
-# CCaps Layout Switcher v0.7.2
+# CCaps Layout Switcher v0.8.0
 
 A lightweight Windows keyboard layout switcher that repurposes the Caps Lock key for quick layout switching with country-specific filtering and configuration persistence.
 
@@ -6,7 +6,7 @@ A lightweight Windows keyboard layout switcher that repurposes the Caps Lock key
 
 - **Caps Lock → Layout Switch**: Press Caps Lock to cycle through keyboard layouts
 - **Country Code Filtering**: Choose specific layouts to switch between (e.g., English ↔ German)
-- **Alt + Caps Lock → Caps Lock**: Hold Alt and press Caps Lock to toggle Caps Lock functionality
+- **Shift + Caps Lock → Caps Lock**: Hold Shift and press Caps Lock to toggle Caps Lock functionality
 - **Visual Indicator**: Scroll Lock LED shows current layout (OFF = English, ON = Non-English)
 - **Background Mode**: Runs silently in the background
 - **Auto-startup**: Automatically starts with Windows
@@ -68,7 +68,7 @@ Use `ccaps -status` to see all available language codes for your system. Common 
 | Key Combination   | Action                          |
 |-------------------|---------------------------------|
 | `Caps Lock`       | Switch to next keyboard layout  |
-| `Alt + Caps Lock` | Toggle Caps Lock on/off         |
+| `Shift + Caps Lock` | Toggle Caps Lock on/off         |
 
 ### Visual Indicator
 
@@ -163,7 +163,7 @@ Example configuration file:
 ```json
 {
   "country_codes": ["de"],
-  "version": "0.7.1"
+  "version": "0.8.0"
 }
 ```
 
@@ -182,7 +182,7 @@ CCaps uses Windows low-level keyboard hooks to intercept Caps Lock key presses a
 2. Intercepts Caps Lock key events
 3. Cycles through selected keyboard layouts (filtered by country codes)
 4. Updates the Scroll Lock indicator to show the current layout
-5. Blocks the default Caps Lock behavior (unless Alt is held)
+5. Blocks the default Caps Lock behavior (unless Shift is held)
 6. Saves and restores layout preferences automatically
 
 ### Layout Selection Logic
@@ -274,7 +274,7 @@ The executable will be created at `target/release/ccaps.exe`.
 ## Technical Details
 
 - **Language**: Rust
-- **Version**: 0.7.1
+- **Version**: 0.8.0
 - **Windows APIs**: WinAPI (winuser, winreg, synchapi, fileapi)
 - **Hook Type**: Low-level keyboard hook (WH_KEYBOARD_LL)
 - **Registry**: Uses `HKEY_CURRENT_USER\SOFTWARE\Microsoft\Windows\CurrentVersion\Run`
@@ -328,6 +328,10 @@ del ccaps.exe
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## Changelog
+
+### v0.8.0
+- ✨ Changed hotkey for toggling Caps Lock from `Alt + Caps Lock` to `Shift + Caps Lock`
+- 🔧 Improved modifier key handling for more intuitive Caps Lock toggle
 
 ### v0.7.2
 - 🐛 Fixed sporadic CapsLock LED activation during Windows startup

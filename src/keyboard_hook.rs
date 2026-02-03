@@ -91,13 +91,13 @@ unsafe extern "system" fn low_level_keyboard_proc(
                 // WM_SYSKEYDOWN occurs when Alt is held or when system thinks Alt is held
                 // (which can happen during Windows startup due to key state desynchronization)
                 if w_param == WM_KEYDOWN as usize || w_param == WM_SYSKEYDOWN as usize {
-                    // Check real-time Alt key state using GetAsyncKeyState
-                    // This prevents desynchronization issues when Alt state changes during window switching
-                    let alt_state = GetAsyncKeyState(VK_MENU);
-                    let is_alt_pressed = (alt_state & 0x8000u16 as i16) != 0;
+                    // Check real-time Shift key state using GetAsyncKeyState
+                    // This prevents desynchronization issues when Shift state changes during window switching
+                    let shift_state = GetAsyncKeyState(VK_SHIFT);
+                    let is_shift_pressed = (shift_state & 0x8000u16 as i16) != 0;
 
-                    if is_alt_pressed {
-                        // Alt + Caps Lock: toggle Caps Lock functionality
+                    if is_shift_pressed {
+                        // Shift + Caps Lock: toggle Caps Lock functionality
                         toggle_caps_lock();
                     } else {
                         // Caps Lock only: switch keyboard layout
