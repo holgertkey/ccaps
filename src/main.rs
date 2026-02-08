@@ -147,9 +147,9 @@ fn run_main_loop(country_codes: Vec<String>) {
         // Install the hook
         match install_hook() {
             Ok(()) => {
-                // Sync CapsLock LED with actual state to fix any desynchronization
-                // that may have occurred during Windows startup
-                layout_indicator::sync_caps_lock_led();
+                // Ensure CapsLock is off at startup since the key is
+                // repurposed for layout switching
+                layout_indicator::ensure_caps_lock_off();
 
                 if !is_background {
                     println!("Hook installed successfully");

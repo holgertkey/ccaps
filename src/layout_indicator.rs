@@ -106,34 +106,29 @@ pub unsafe fn update_layout_indicator() {
     }
 }
 
-// Public function to synchronize CapsLock LED with actual CapsLock state
-// This fixes LED desynchronization that can occur during Windows startup
-// by performing a double-toggle (on-off or off-on) to force LED resync
-pub unsafe fn sync_caps_lock_led() {
+// Public function to ensure CapsLock is turned off at startup.
+// Since CCaps repurposes the CapsLock key for layout switching,
+// CapsLock should be off when the program starts.
+// Only sends key events if CapsLock is actually on, avoiding
+// unnecessary toggles that can cause LED desynchronization during
+// Windows startup due to unreliable SendInput timing.
+pub unsafe fn ensure_caps_lock_off() {
     unsafe {
-        // Double-toggle CapsLock to force LED synchronization with actual state
-        // This works because Windows updates the LED on each toggle
-        let mut inputs: [INPUT; 4] = std::mem::zeroed();
+        let caps_state = GetKeyState(VK_CAPITAL) & 1;
+        if caps_state != 0 {
+            // CapsLock is on, toggle it off with a single press+release
+            let mut inputs: [INPUT; 2] = std::mem::zeroed();
 
-        // First toggle (press + release)
-        inputs[0].type_ = INPUT_KEYBOARD;
-        inputs[0].u.ki_mut().wVk = VK_CAPITAL as u16;
-        inputs[0].u.ki_mut().dwFlags = 0;
+            inputs[0].type_ = INPUT_KEYBOARD;
+            inputs[0].u.ki_mut().wVk = VK_CAPITAL as u16;
+            inputs[0].u.ki_mut().dwFlags = 0;
 
-        inputs[1].type_ = INPUT_KEYBOARD;
-        inputs[1].u.ki_mut().wVk = VK_CAPITAL as u16;
-        inputs[1].u.ki_mut().dwFlags = KEYEVENTF_KEYUP;
+            inputs[1].type_ = INPUT_KEYBOARD;
+            inputs[1].u.ki_mut().wVk = VK_CAPITAL as u16;
+            inputs[1].u.ki_mut().dwFlags = KEYEVENTF_KEYUP;
 
-        // Second toggle (press + release) - returns to original state
-        inputs[2].type_ = INPUT_KEYBOARD;
-        inputs[2].u.ki_mut().wVk = VK_CAPITAL as u16;
-        inputs[2].u.ki_mut().dwFlags = 0;
-
-        inputs[3].type_ = INPUT_KEYBOARD;
-        inputs[3].u.ki_mut().wVk = VK_CAPITAL as u16;
-        inputs[3].u.ki_mut().dwFlags = KEYEVENTF_KEYUP;
-
-        SendInput(4, inputs.as_mut_ptr(), std::mem::size_of::<INPUT>() as i32);
+            SendInput(2, inputs.as_mut_ptr(), std::mem::size_of::<INPUT>() as i32);
+        }
     }
 }
 
