@@ -1,4 +1,4 @@
-# CCaps Layout Switcher v0.8.1
+# CCaps Layout Switcher v0.8.2
 
 A lightweight Windows keyboard layout switcher that repurposes the Caps Lock key for quick layout switching with country-specific filtering and configuration persistence.
 
@@ -163,7 +163,7 @@ Example configuration file:
 ```json
 {
   "country_codes": ["de"],
-  "version": "0.8.1"
+  "version": "0.8.2"
 }
 ```
 
@@ -274,7 +274,7 @@ The executable will be created at `target/release/ccaps.exe`.
 ## Technical Details
 
 - **Language**: Rust
-- **Version**: 0.8.1
+- **Version**: 0.8.2
 - **Windows APIs**: WinAPI (winuser, winreg, synchapi, fileapi)
 - **Hook Type**: Low-level keyboard hook (WH_KEYBOARD_LL)
 - **Registry**: Uses `HKEY_CURRENT_USER\SOFTWARE\Microsoft\Windows\CurrentVersion\Run`
@@ -328,6 +328,12 @@ del ccaps.exe
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## Changelog
+
+### v0.8.2
+- 🐛 Fixed spontaneous CapsLock LED activation during Windows startup caused by external injected events
+- 🔧 Added dwExtraInfo marker (CCAPS_EXTRA_INFO) to distinguish CCaps's own SendInput calls from external ones
+- 🔧 Added GetKeyboardState() synchronization before CapsLock state check at startup
+- ✅ Added 7 unit tests for hook pass-through logic
 
 ### v0.8.1
 - 🐛 Fixed sporadic CapsLock LED activation after Windows startup

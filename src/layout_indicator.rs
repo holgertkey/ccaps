@@ -2,6 +2,7 @@ use std::ptr;
 use std::mem;
 use winapi::um::winuser::*;
 use winapi::shared::minwindef::HKL;
+use crate::keyboard_hook::CCAPS_EXTRA_INFO;
 
 // Function to check if given layout is English
 unsafe fn is_english_layout_hkl(layout: HKL) -> bool {
@@ -114,6 +115,13 @@ pub unsafe fn update_layout_indicator() {
 // Windows startup due to unreliable SendInput timing.
 pub unsafe fn ensure_caps_lock_off() {
     unsafe {
+        // Synchronize the thread's key state table before querying.
+        // GetKeyState() relies on the thread's internal key state buffer,
+        // which may be stale during Windows startup before the message loop runs.
+        // GetKeyboardState() forces a synchronization with the actual key states.
+        let mut key_state: [u8; 256] = [0; 256];
+        GetKeyboardState(key_state.as_mut_ptr());
+
         let caps_state = GetKeyState(VK_CAPITAL) & 1;
         if caps_state != 0 {
             // CapsLock is on, toggle it off with a single press+release
@@ -122,10 +130,12 @@ pub unsafe fn ensure_caps_lock_off() {
             inputs[0].type_ = INPUT_KEYBOARD;
             inputs[0].u.ki_mut().wVk = VK_CAPITAL as u16;
             inputs[0].u.ki_mut().dwFlags = 0;
+            inputs[0].u.ki_mut().dwExtraInfo = CCAPS_EXTRA_INFO;
 
             inputs[1].type_ = INPUT_KEYBOARD;
             inputs[1].u.ki_mut().wVk = VK_CAPITAL as u16;
             inputs[1].u.ki_mut().dwFlags = KEYEVENTF_KEYUP;
+            inputs[1].u.ki_mut().dwExtraInfo = CCAPS_EXTRA_INFO;
 
             SendInput(2, inputs.as_mut_ptr(), std::mem::size_of::<INPUT>() as i32);
         }

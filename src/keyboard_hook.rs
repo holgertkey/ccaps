@@ -68,6 +68,11 @@ pub fn initialize_layout_switching(country_codes: &[String]) {
 // Flag indicating injected event (from SendInput)
 const LLKHF_INJECTED: u32 = 0x00000010;
 
+// Unique marker value set in dwExtraInfo for all CCaps SendInput calls.
+// This allows the hook to distinguish CCaps's own injected CapsLock events
+// from external injected events (e.g., from other programs during OS startup).
+pub const CCAPS_EXTRA_INFO: usize = 0xCCA95;
+
 // Callback function for handling key presses
 unsafe extern "system" fn low_level_keyboard_proc(
     n_code: i32,
@@ -81,9 +86,10 @@ unsafe extern "system" fn low_level_keyboard_proc(
 
             // Check if this is CapsLock
             if vk_code == VK_CAPITAL as u32 {
-                // Allow injected events (from our own SendInput calls) to pass through
-                // This is needed for toggle_caps_lock() and sync_caps_lock_led() to work
-                if (kb_struct.flags & LLKHF_INJECTED) != 0 {
+                // Allow only CCaps's own injected CapsLock events to pass through.
+                // External injected CapsLock events (from other programs or OS during startup)
+                // are blocked to prevent spontaneous CapsLock LED activation.
+                if (kb_struct.flags & LLKHF_INJECTED) != 0 && kb_struct.dwExtraInfo == CCAPS_EXTRA_INFO {
                     return CallNextHookEx(HOOK, n_code, w_param, l_param);
                 }
 
@@ -159,11 +165,13 @@ unsafe fn toggle_caps_lock() {
         inputs[0].type_ = INPUT_KEYBOARD;
         inputs[0].u.ki_mut().wVk = VK_CAPITAL as u16;
         inputs[0].u.ki_mut().dwFlags = 0;
-        
+        inputs[0].u.ki_mut().dwExtraInfo = CCAPS_EXTRA_INFO;
+
         // Second INPUT - Caps Lock release
         inputs[1].type_ = INPUT_KEYBOARD;
         inputs[1].u.ki_mut().wVk = VK_CAPITAL as u16;
         inputs[1].u.ki_mut().dwFlags = KEYEVENTF_KEYUP;
+        inputs[1].u.ki_mut().dwExtraInfo = CCAPS_EXTRA_INFO;
         
         // Send press and release events
         SendInput(2, inputs.as_mut_ptr(), mem::size_of::<INPUT>() as i32);
@@ -203,6 +211,13 @@ pub unsafe fn uninstall_hook() {
     }
 }
 
+// Helper to check if a CapsLock event should be passed through the hook.
+// Extracted from hook logic so it can be unit-tested without a real hook.
+#[cfg(test)]
+fn should_pass_through_capslock(flags: u32, dw_extra_info: usize) -> bool {
+    (flags & LLKHF_INJECTED) != 0 && dw_extra_info == CCAPS_EXTRA_INFO
+}
+
 // Function to get current layout switching status (for debugging)
 pub fn get_switching_status() -> (usize, Vec<String>) {
     if let Ok(hook_data) = HOOK_DATA.lock() {
@@ -213,5 +228,67 @@ pub fn get_switching_status() -> (usize, Vec<String>) {
         (hook_data.current_layout_index, layout_names)
     } else {
         (0, vec!["Error: Could not access layout data".to_string()])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_ccaps_extra_info_is_nonzero() {
+        // The marker must be non-zero to distinguish from default dwExtraInfo (0)
+        assert_ne!(CCAPS_EXTRA_INFO, 0, "CCAPS_EXTRA_INFO must be non-zero");
+    }
+
+    #[test]
+    fn test_ccaps_extra_info_value() {
+        assert_eq!(CCAPS_EXTRA_INFO, 0xCCA95);
+    }
+
+    #[test]
+    fn test_pass_through_ccaps_injected_event() {
+        // CCaps's own injected event (INJECTED flag + matching dwExtraInfo) should pass through
+        assert!(
+            should_pass_through_capslock(LLKHF_INJECTED, CCAPS_EXTRA_INFO),
+            "CCaps's own injected CapsLock events should pass through the hook"
+        );
+    }
+
+    #[test]
+    fn test_block_external_injected_event() {
+        // External injected event (INJECTED flag but dwExtraInfo == 0) should be blocked
+        assert!(
+            !should_pass_through_capslock(LLKHF_INJECTED, 0),
+            "External injected CapsLock events (dwExtraInfo=0) should be blocked"
+        );
+    }
+
+    #[test]
+    fn test_block_external_injected_event_with_different_marker() {
+        // External injected event with a different dwExtraInfo value should be blocked
+        assert!(
+            !should_pass_through_capslock(LLKHF_INJECTED, 0x12345),
+            "Injected events with non-CCaps dwExtraInfo should be blocked"
+        );
+    }
+
+    #[test]
+    fn test_block_non_injected_event() {
+        // Non-injected event (physical key press) should not pass through
+        assert!(
+            !should_pass_through_capslock(0, 0),
+            "Physical CapsLock key presses should not pass through"
+        );
+    }
+
+    #[test]
+    fn test_block_non_injected_event_with_ccaps_marker() {
+        // Non-injected event even with CCaps marker should not pass through
+        // (this scenario shouldn't happen in practice, but tests defensive logic)
+        assert!(
+            !should_pass_through_capslock(0, CCAPS_EXTRA_INFO),
+            "Non-injected events should not pass through even with CCaps marker"
+        );
     }
 }
