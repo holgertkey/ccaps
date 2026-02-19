@@ -119,6 +119,11 @@ unsafe extern "system" fn low_level_keyboard_proc(
                 if w_param == WM_KEYUP as usize || w_param == WM_SYSKEYUP as usize {
                     return 1;
                 }
+
+                // Catch-all: block any remaining CapsLock event with an unexpected w_param.
+                // Prevents fallthrough to CallNextHookEx for non-standard message types that
+                // some programs or drivers might inject (e.g., Chrome accessibility layer).
+                return 1;
             }
         }
 
@@ -155,12 +160,9 @@ unsafe fn switch_keyboard_layout() {
 // Function to toggle Caps Lock state
 unsafe fn toggle_caps_lock() {
     unsafe {
-        // Get current Caps Lock state
-        let _caps_state = GetKeyState(VK_CAPITAL);
-        
         // Create array for simulating key press
         let mut inputs: [INPUT; 2] = mem::zeroed();
-        
+
         // First INPUT - Caps Lock press
         inputs[0].type_ = INPUT_KEYBOARD;
         inputs[0].u.ki_mut().wVk = VK_CAPITAL as u16;
@@ -172,7 +174,7 @@ unsafe fn toggle_caps_lock() {
         inputs[1].u.ki_mut().wVk = VK_CAPITAL as u16;
         inputs[1].u.ki_mut().dwFlags = KEYEVENTF_KEYUP;
         inputs[1].u.ki_mut().dwExtraInfo = CCAPS_EXTRA_INFO;
-        
+
         // Send press and release events
         SendInput(2, inputs.as_mut_ptr(), mem::size_of::<INPUT>() as i32);
     }
@@ -291,4 +293,5 @@ mod tests {
             "Non-injected events should not pass through even with CCaps marker"
         );
     }
+
 }

@@ -1,6 +1,6 @@
 [package]
 name = "ccaps"
-version = "0.8.2"
+version = "0.8.3"
 edition = "2021"
 authors = ["holgertkey"]
 description = "A lightweight Windows keyboard layout switcher that repurposes the Caps Lock key for quick layout switching"

@@ -245,13 +245,13 @@ fn cleanup_and_exit() {
 // Improved hidden window creation function
 unsafe fn create_message_window() {
     use winapi::um::libloaderapi::GetModuleHandleW;
-    
+
     let class_name = "CCapsMessageWindow\0";
     let class_name_wide: Vec<u16> = OsString::from(class_name).encode_wide().collect();
-    
+
     let window_name = "CCaps Layout Switcher\0";
     let window_name_wide: Vec<u16> = OsString::from(window_name).encode_wide().collect();
-    
+
     // Custom window procedure for handling system messages
     unsafe extern "system" fn window_proc(
         hwnd: HWND,
