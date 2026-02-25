@@ -1,5 +1,11 @@
 # Changelog
 
+### v0.9.0
+- 🚀 Added automated publishing to crates.io via GitHub Actions workflow
+
+### v0.8.3
+- 🔧 Added GitHub Actions release workflow
+
 ### v0.8.2
 - 🐛 Fixed spontaneous CapsLock LED activation during Windows startup caused by external injected events
 - 🔧 Added dwExtraInfo marker (CCAPS_EXTRA_INFO) to distinguish CCaps's own SendInput calls from external ones
