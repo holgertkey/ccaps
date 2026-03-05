@@ -1,4 +1,4 @@
-# CCaps Layout Switcher v0.9.0
+# CCaps Layout Switcher v0.10.0
 
 A lightweight Windows keyboard layout switcher that repurposes the Caps Lock key for quick layout switching with country-specific filtering and configuration persistence.
 
@@ -41,7 +41,7 @@ ccaps -run         # Run in foreground mode (all layouts)
 ccaps -start       # Start in background with all layouts + add to auto-startup
 ccaps -start -de   # Start in background with English/German + add to auto-startup
 ccaps -stop        # Stop background process + remove from startup + delete config
-ccaps -exit        # Stop background process only
+ccaps -quit        # Stop background process only
 ccaps -status      # Show status and available language codes
 ccaps -help        # Show help information
 ccaps -v           # Show version information
@@ -90,11 +90,11 @@ Shows a menu with all available options and current system status.
 - `start` - Start in background with all layouts and add to auto-startup
 - `start -de` - Start in background with specific layouts and auto-startup
 - `stop` - Stop background process and remove from startup
-- `exit` - Stop background process only
+- `quit` - Stop background process only
 - `status` - Show current status and available language codes
 - `help` - Show detailed help
 - `menu` - Show menu again
-- `quit` or `q` - Exit interactive menu
+- `exit` or `e` - Exit interactive menu
 
 ### 2. Switch Between English and German
 ```bash
@@ -163,7 +163,7 @@ Example configuration file:
 ```json
 {
   "country_codes": ["de"],
-  "version": "0.9.0"
+  "version": "0.10.0"
 }
 ```
 
@@ -222,7 +222,7 @@ ccaps
 # Choose from menu:
 # start -de     # This saves the preference and starts background process
 # run -de       # This only runs temporarily without saving
-# q             # Quick exit from interactive menu
+# e             # Quick exit from interactive menu
 ```
 
 ### Registry Integration
@@ -274,7 +274,7 @@ The executable will be created at `target/release/ccaps.exe`.
 ## Technical Details
 
 - **Language**: Rust
-- **Version**: 0.9.0
+- **Version**: 0.10.0
 - **Windows APIs**: WinAPI (winuser, winreg, synchapi, fileapi)
 - **Hook Type**: Low-level keyboard hook (WH_KEYBOARD_LL)
 - **Registry**: Uses `HKEY_CURRENT_USER\SOFTWARE\Microsoft\Windows\CurrentVersion\Run`
@@ -303,7 +303,7 @@ ccaps -start -de    # or your preferred layout codes
 
 ### Configuration not loading
 - Check if configuration file exists: `ccaps -status`
-- Restart background process: `ccaps -exit` then `ccaps -start`
+- Restart background process: `ccaps -quit` then `ccaps -start`
 - Manually delete and recreate: `ccaps -stop` then `ccaps -start -de`
 
 ### Layout switching not working with specific codes

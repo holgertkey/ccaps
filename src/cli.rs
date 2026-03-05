@@ -49,7 +49,7 @@ pub fn parse_args() -> CliCommand {
             CliCommand::Start(country_codes)
         },
         "-stop" => CliCommand::Stop,
-        "-exit" => CliCommand::Exit,
+        "-quit" => CliCommand::Exit,
         "-status" => CliCommand::Status,
         "-run" => {
             // Parse country codes after -run
@@ -349,7 +349,7 @@ fn show_help() {
     println!("  ccaps -start       - Start in background with all layouts and add to auto-startup");
     println!("  ccaps -start -de   - Start in background with German/English and add to auto-startup");
     println!("  ccaps -stop        - Stop background process and remove from startup");
-    println!("  ccaps -exit        - Stop background process only");
+    println!("  ccaps -quit        - Stop background process only");
     println!("  ccaps -status      - Show current status and available language codes");
     println!("  ccaps -help        - Show this help");
     println!("  ccaps -v           - Show version information");

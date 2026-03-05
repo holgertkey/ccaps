@@ -1,5 +1,8 @@
 # Changelog
 
+### v0.10.0
+- 🔄 Renamed interactive menu commands: `exit` → `quit` (stop background process only), `quit`/`q` → `exit`/`e` (exit interactive menu)
+
 ### v0.9.0
 - 🚀 Added automated publishing to crates.io via GitHub Actions workflow
 
@@ -36,7 +39,7 @@
 - 🐛 Fixed sporadic Caps Lock LED activation during window switching and system startup
 - 🔧 Improved Alt key state detection using real-time polling instead of event tracking
 - 🔧 Removed dependency on Alt key state caching to prevent desynchronization
-- ✨ Added confirmation prompts [y/n] for `-exit` and `-stop` commands to prevent accidental termination
+- ✨ Added confirmation prompts [y/n] for `-quit` and `-stop` commands to prevent accidental termination
 - ✨ Added startup check in `-start` command to detect existing auto-startup entries
 - 🔧 Improved user feedback messages when running `-start` (shows "Updating configuration..." vs "Added to startup")
 - ✅ Added comprehensive unit tests for confirmation functionality (10 test cases)
