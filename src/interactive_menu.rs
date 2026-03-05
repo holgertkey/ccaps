@@ -56,7 +56,7 @@ pub fn show_interactive_menu() -> (i32, Vec<String>) {
                         show_menu(); // Show menu again
                         println!();
                     },
-                    CliCommand::Unknown(ref cmd) if cmd == "quit" || cmd == "q" => {
+                    CliCommand::Unknown(ref cmd) if cmd == "exit" => {
                         println!();
                         println!("Goodbye!");
                         return (1, vec![]);
@@ -109,11 +109,11 @@ fn show_menu() {
     println!("│  start         - Start in background (all layouts) and add to auto-startup │");
     println!("│  start -de     - Start in background (English/German) and auto-startup     │");
     println!("│  stop          - Stop background process and remove from startup           │");
-    println!("│  exit          - Stop background process only                              │");
+    println!("│  quit          - Stop background process only                              │");
     println!("│  status        - Show current status and available language codes          │");
     println!("│  help          - Show detailed help                                        │");
     println!("│  menu          - Show this menu again                                      │");
-    println!("│  quit (q)      - Exit this menu                                            │");
+    println!("│  exit (e)      - Exit this menu                                            │");
     println!("└────────────────────────────────────────────────────────────────────────────┘");
     println!();
     println!("Key bindings when running:");
@@ -187,11 +187,11 @@ fn parse_menu_command(input: &str) -> CliCommand {
             CliCommand::Start(country_codes)
         },
         "stop" => CliCommand::Stop,
-        "exit" => CliCommand::Exit,
+        "quit" => CliCommand::Exit,
         "status" => CliCommand::Status,
         "help" => CliCommand::Help,
         "menu" => CliCommand::Unknown("menu".to_string()),
-        "quit" | "q" => CliCommand::Unknown("quit".to_string()),
+        "exit" | "e" => CliCommand::Unknown("exit".to_string()),
         _ => CliCommand::Unknown(input.to_string()),
     }
 }
