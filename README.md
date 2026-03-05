@@ -65,9 +65,9 @@ Use `ccaps -status` to see all available language codes for your system. Common 
 
 ### Key Bindings
 
-| Key Combination   | Action                          |
-|-------------------|---------------------------------|
-| `Caps Lock`       | Switch to next keyboard layout  |
+| Key Combination     | Action                          |
+|---------------------|---------------------------------|
+| `Caps Lock`         | Switch to next keyboard layout  |
 | `Shift + Caps Lock` | Toggle Caps Lock on/off         |
 
 ### Visual Indicator
