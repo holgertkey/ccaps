@@ -1,12 +1,12 @@
-use std::ptr;
-use std::mem;
-use std::sync::Mutex;
-use winapi::um::winuser::*;
-use winapi::um::libloaderapi::GetModuleHandleW;
-use winapi::shared::minwindef::*;
-use winapi::shared::windef::HHOOK;
 use crate::layout_indicator;
 use crate::layout_manager::{self, LayoutInfo};
+use std::mem;
+use std::ptr;
+use std::sync::Mutex;
+use winapi::shared::minwindef::*;
+use winapi::shared::windef::HHOOK;
+use winapi::um::libloaderapi::GetModuleHandleW;
+use winapi::um::winuser::*;
 
 // Global variable to store the hook
 static mut HOOK: HHOOK = ptr::null_mut();
@@ -26,7 +26,7 @@ static HOOK_DATA: Mutex<HookData> = Mutex::new(HookData {
 // Initialize layout switching with specific country codes
 pub fn initialize_layout_switching(country_codes: &[String]) {
     let mut hook_data = HOOK_DATA.lock().unwrap();
-    
+
     if country_codes.is_empty() {
         // Use all available layouts
         hook_data.selected_layouts = layout_manager::get_all_keyboard_layouts();
@@ -34,33 +34,43 @@ pub fn initialize_layout_switching(country_codes: &[String]) {
         // Find layouts by country codes
         let codes: Vec<&str> = country_codes.iter().map(|s| s.as_str()).collect();
         hook_data.selected_layouts = layout_manager::find_layouts_by_codes(&codes);
-        
-        // If no layouts found by codes or only one layout found, 
+
+        // If no layouts found by codes or only one layout found,
         // try to add English layout for better switching experience
         if hook_data.selected_layouts.len() <= 1 {
             if let Some(english_layout) = layout_manager::get_english_layout() {
                 // Add English layout if not already present
-                let has_english = hook_data.selected_layouts.iter()
+                let has_english = hook_data
+                    .selected_layouts
+                    .iter()
                     .any(|l| l.hkl == english_layout.hkl);
-                
+
                 if !has_english {
                     hook_data.selected_layouts.insert(0, english_layout);
                 }
             }
         }
     }
-    
+
     // Find current layout index
     if let Some(current) = layout_manager::get_current_layout() {
-        hook_data.current_layout_index = hook_data.selected_layouts
+        hook_data.current_layout_index = hook_data
+            .selected_layouts
             .iter()
             .position(|l| l.hkl == current.hkl)
             .unwrap_or(0);
     }
-    
-    println!("Initialized with {} layout(s):", hook_data.selected_layouts.len());
+
+    println!(
+        "Initialized with {} layout(s):",
+        hook_data.selected_layouts.len()
+    );
     for (i, layout) in hook_data.selected_layouts.iter().enumerate() {
-        let marker = if i == hook_data.current_layout_index { " [CURRENT]" } else { "" };
+        let marker = if i == hook_data.current_layout_index {
+            " [CURRENT]"
+        } else {
+            ""
+        };
         println!("  {} - {}{}", layout.short_code, layout.name, marker);
     }
 }
@@ -89,7 +99,9 @@ unsafe extern "system" fn low_level_keyboard_proc(
                 // Allow only CCaps's own injected CapsLock events to pass through.
                 // External injected CapsLock events (from other programs or OS during startup)
                 // are blocked to prevent spontaneous CapsLock LED activation.
-                if (kb_struct.flags & LLKHF_INJECTED) != 0 && kb_struct.dwExtraInfo == CCAPS_EXTRA_INFO {
+                if (kb_struct.flags & LLKHF_INJECTED) != 0
+                    && kb_struct.dwExtraInfo == CCAPS_EXTRA_INFO
+                {
                     return CallNextHookEx(HOOK, n_code, w_param, l_param);
                 }
 
@@ -137,21 +149,24 @@ unsafe fn switch_keyboard_layout() {
         if hook_data.selected_layouts.is_empty() {
             return;
         }
-        
+
         if hook_data.selected_layouts.len() == 1 {
             // Only one layout available, just activate it
             layout_manager::switch_to_layout(&hook_data.selected_layouts[0]);
-            layout_indicator::update_layout_indicator_with_layout(hook_data.selected_layouts[0].get_hkl());
+            layout_indicator::update_layout_indicator_with_layout(
+                hook_data.selected_layouts[0].get_hkl(),
+            );
             return;
         }
-        
+
         // Move to next layout
-        hook_data.current_layout_index = (hook_data.current_layout_index + 1) % hook_data.selected_layouts.len();
+        hook_data.current_layout_index =
+            (hook_data.current_layout_index + 1) % hook_data.selected_layouts.len();
         let next_layout = &hook_data.selected_layouts[hook_data.current_layout_index];
-        
+
         // Switch to the new layout
         layout_manager::switch_to_layout(next_layout);
-        
+
         // Update Scroll Lock indicator
         layout_indicator::update_layout_indicator_with_layout(next_layout.get_hkl());
     }
@@ -187,18 +202,13 @@ pub unsafe fn install_hook() -> Result<(), &'static str> {
         if h_mod.is_null() {
             return Err("Failed to get module handle");
         }
-        
-        HOOK = SetWindowsHookExW(
-            WH_KEYBOARD_LL,
-            Some(low_level_keyboard_proc),
-            h_mod,
-            0,
-        );
-        
+
+        HOOK = SetWindowsHookExW(WH_KEYBOARD_LL, Some(low_level_keyboard_proc), h_mod, 0);
+
         if HOOK.is_null() {
             return Err("Failed to install hook");
         }
-        
+
         Ok(())
     }
 }
@@ -223,7 +233,8 @@ fn should_pass_through_capslock(flags: u32, dw_extra_info: usize) -> bool {
 // Function to get current layout switching status (for debugging)
 pub fn get_switching_status() -> (usize, Vec<String>) {
     if let Ok(hook_data) = HOOK_DATA.lock() {
-        let layout_names: Vec<String> = hook_data.selected_layouts
+        let layout_names: Vec<String> = hook_data
+            .selected_layouts
             .iter()
             .map(|l| format!("{} ({})", l.name, l.short_code))
             .collect();
@@ -293,5 +304,4 @@ mod tests {
             "Non-injected events should not pass through even with CCaps marker"
         );
     }
-
 }

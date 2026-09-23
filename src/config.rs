@@ -1,7 +1,7 @@
+use serde::{Deserialize, Serialize};
+use std::env;
 use std::fs;
 use std::path::PathBuf;
-use std::env;
-use serde::{Deserialize, Serialize};
 
 const CONFIG_FILE_NAME: &str = "ccaps-config.json";
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -55,42 +55,51 @@ pub fn load_config() -> Config {
                     match serde_json::from_str::<Config>(&content) {
                         Ok(config) => {
                             // Validate that the config has the correct version or is compatible
-                            if config.version == CURRENT_VERSION || config.version == "0.6.0" || config.version.starts_with("0.") {
+                            if config.version == CURRENT_VERSION
+                                || config.version == "0.6.0"
+                                || config.version.starts_with("0.")
+                            {
                                 return config;
                             } else {
                                 eprintln!("Warning: Config version mismatch, using defaults");
                             }
-                        },
+                        }
                         Err(e) => {
-                            eprintln!("Warning: Could not parse config file ({}), using defaults", e);
+                            eprintln!(
+                                "Warning: Could not parse config file ({}), using defaults",
+                                e
+                            );
                         }
                     }
-                },
+                }
                 Err(_) => {
                     // Config file doesn't exist, that's ok - we'll create one when needed
                 }
             }
-        },
+        }
         Err(e) => {
-            eprintln!("Warning: Could not determine config path ({}), using defaults", e);
+            eprintln!(
+                "Warning: Could not determine config path ({}), using defaults",
+                e
+            );
         }
     }
-    
+
     // Return default config if loading failed
     Config::new()
 }
 
 // Save configuration to file
 pub fn save_config(config: &Config) -> Result<(), String> {
-    let config_path = get_config_path()
-        .map_err(|e| format!("Cannot determine config path: {}", e))?;
-    
+    let config_path =
+        get_config_path().map_err(|e| format!("Cannot determine config path: {}", e))?;
+
     let json_content = serde_json::to_string_pretty(config)
         .map_err(|e| format!("Cannot serialize config: {}", e))?;
-    
+
     fs::write(&config_path, json_content)
         .map_err(|e| format!("Cannot write config file: {}", e))?;
-    
+
     Ok(())
 }
 
@@ -103,7 +112,7 @@ pub fn delete_config() -> Result<(), String> {
                     .map_err(|e| format!("Cannot delete config file: {}", e))?;
             }
             Ok(())
-        },
+        }
         Err(e) => Err(format!("Cannot determine config path: {}", e)),
     }
 }
@@ -115,7 +124,7 @@ pub fn get_config_info() -> (bool, Option<String>) {
             let exists = config_path.exists();
             let path_str = config_path.to_string_lossy().to_string();
             (exists, Some(path_str))
-        },
+        }
         Err(_) => (false, None),
     }
 }

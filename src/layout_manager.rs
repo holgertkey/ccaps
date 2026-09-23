@@ -1,7 +1,8 @@
-use std::ptr;
 use std::mem;
-use winapi::um::winuser::*;
+use std::ptr;
 use winapi::shared::minwindef::{HKL, LPARAM};
+use winapi::shared::windef::HWND;
+use winapi::um::winuser::*;
 
 #[derive(Debug, Clone)]
 pub struct LayoutInfo {
@@ -17,7 +18,7 @@ impl LayoutInfo {
     pub fn new(hkl: HKL) -> Self {
         let lang_id = (hkl as usize) & 0xFFFF;
         let (name, short_code, is_english) = get_layout_details(lang_id as u32);
-        
+
         LayoutInfo {
             hkl: hkl as usize, // Convert HKL to usize
             lang_id: lang_id as u32,
@@ -26,7 +27,7 @@ impl LayoutInfo {
             is_english,
         }
     }
-    
+
     pub fn get_hkl(&self) -> HKL {
         self.hkl as HKL // Convert back to HKL when needed
     }
@@ -36,21 +37,19 @@ pub fn get_all_keyboard_layouts() -> Vec<LayoutInfo> {
     unsafe {
         let mut layouts: [HKL; 20] = mem::zeroed();
         let layout_count = GetKeyboardLayoutList(20, layouts.as_mut_ptr());
-        
+
         let mut layout_infos = Vec::new();
         for i in 0..layout_count as usize {
             layout_infos.push(LayoutInfo::new(layouts[i]));
         }
-        
+
         // Sort layouts: English first, then alphabetically
-        layout_infos.sort_by(|a, b| {
-            match (a.is_english, b.is_english) {
-                (true, false) => std::cmp::Ordering::Less,
-                (false, true) => std::cmp::Ordering::Greater,
-                _ => a.name.cmp(&b.name),
-            }
+        layout_infos.sort_by(|a, b| match (a.is_english, b.is_english) {
+            (true, false) => std::cmp::Ordering::Less,
+            (false, true) => std::cmp::Ordering::Greater,
+            _ => a.name.cmp(&b.name),
         });
-        
+
         layout_infos
     }
 }
@@ -86,13 +85,13 @@ pub fn get_current_thread_layout() -> Option<LayoutInfo> {
 pub fn find_layouts_by_codes(codes: &[&str]) -> Vec<LayoutInfo> {
     let all_layouts = get_all_keyboard_layouts();
     let mut selected_layouts = Vec::new();
-    
+
     for code in codes {
         if let Some(layout) = all_layouts.iter().find(|l| l.short_code == *code) {
             selected_layouts.push(layout.clone());
         }
     }
-    
+
     selected_layouts
 }
 
@@ -107,33 +106,51 @@ pub fn switch_to_layout(layout: &LayoutInfo) {
         if hwnd.is_null() {
             return;
         }
-        
+
         let hkl = layout.get_hkl();
-        
+
         // Activate new layout
         ActivateKeyboardLayout(hkl, 0);
-        
-        // Send layout change message to all windows
-        PostMessageW(
-            HWND_BROADCAST,
-            WM_INPUTLANGCHANGEREQUEST,
-            0,
-            hkl as LPARAM,
-        );
+
+        // Ask the foreground window to change its layout. This used to be posted to
+        // HWND_BROADCAST, which also reached hidden top-level windows of other threads
+        // (e.g. an OpenGL driver's helper windows) and could deadlock such processes
+        // when two of their threads handled the layout change at the same time.
+        if let Some(target) = layout_request_target(hwnd) {
+            PostMessageW(target, WM_INPUTLANGCHANGEREQUEST, 0, hkl as LPARAM);
+        }
+    }
+}
+
+// Returns the window that should receive WM_INPUTLANGCHANGEREQUEST: the foreground
+// window only, never a broadcast.
+fn layout_request_target(foreground: HWND) -> Option<HWND> {
+    if foreground.is_null() || foreground == HWND_BROADCAST {
+        None
+    } else {
+        Some(foreground)
     }
 }
 
 fn get_layout_details(lang_id: u32) -> (String, String, bool) {
     match lang_id {
         // English variants
-        0x0409 => ("English (United States)".to_string(), "us".to_string(), true),
-        0x0809 => ("English (United Kingdom)".to_string(), "gb".to_string(), true),
+        0x0409 => (
+            "English (United States)".to_string(),
+            "us".to_string(),
+            true,
+        ),
+        0x0809 => (
+            "English (United Kingdom)".to_string(),
+            "gb".to_string(),
+            true,
+        ),
         0x0c09 => ("English (Australia)".to_string(), "au".to_string(), true),
         0x1009 => ("English (Canada)".to_string(), "ca".to_string(), true),
         0x1409 => ("English (New Zealand)".to_string(), "nz".to_string(), true),
         0x1809 => ("English (Ireland)".to_string(), "ie".to_string(), true),
         0x1c09 => ("English (South Africa)".to_string(), "za".to_string(), true),
-        
+
         // Cyrillic languages
         0x0419 => ("Russian".to_string(), "ru".to_string(), false),
         0x0422 => ("Ukrainian".to_string(), "ua".to_string(), false),
@@ -144,7 +161,7 @@ fn get_layout_details(lang_id: u32) -> (String, String, bool) {
         0x081a => ("Serbian (Latin)".to_string(), "rs".to_string(), false),
         0x0c1a => ("Serbian (Cyrillic)".to_string(), "sr".to_string(), false),
         0x041f => ("Turkish".to_string(), "tr".to_string(), false),
-        
+
         // Western European
         0x0407 => ("German".to_string(), "de".to_string(), false),
         0x040c => ("French".to_string(), "fr".to_string(), false),
@@ -157,7 +174,7 @@ fn get_layout_details(lang_id: u32) -> (String, String, bool) {
         0x040b => ("Finnish".to_string(), "fi".to_string(), false),
         0x0816 => ("Portuguese".to_string(), "pt".to_string(), false),
         0x0416 => ("Portuguese (Brazil)".to_string(), "br".to_string(), false),
-        
+
         // Eastern European
         0x0415 => ("Polish".to_string(), "pl".to_string(), false),
         0x040e => ("Hungarian".to_string(), "hu".to_string(), false),
@@ -167,7 +184,7 @@ fn get_layout_details(lang_id: u32) -> (String, String, bool) {
         0x0425 => ("Estonian".to_string(), "ee".to_string(), false),
         0x0426 => ("Latvian".to_string(), "lv".to_string(), false),
         0x0427 => ("Lithuanian".to_string(), "lt".to_string(), false),
-        
+
         // Asian languages
         0x0411 => ("Japanese".to_string(), "jp".to_string(), false),
         0x0412 => ("Korean".to_string(), "kr".to_string(), false),
@@ -175,18 +192,18 @@ fn get_layout_details(lang_id: u32) -> (String, String, bool) {
         0x0804 => ("Chinese (Simplified)".to_string(), "cn".to_string(), false),
         0x041e => ("Thai".to_string(), "th".to_string(), false),
         0x042a => ("Vietnamese".to_string(), "vn".to_string(), false),
-        
+
         // Middle Eastern
         0x040d => ("Hebrew".to_string(), "he".to_string(), false),
         0x0401 => ("Arabic".to_string(), "ar".to_string(), false),
         0x0429 => ("Farsi".to_string(), "fa".to_string(), false),
-        
+
         // Other
         0x040f => ("Icelandic".to_string(), "is".to_string(), false),
         0x0408 => ("Greek".to_string(), "gr".to_string(), false),
         0x041c => ("Albanian".to_string(), "al".to_string(), false),
         0x042f => ("Macedonian".to_string(), "mk".to_string(), false),
-        
+
         // Default case
         _ => {
             // Try to determine if it's English based on primary language
@@ -203,7 +220,7 @@ pub fn validate_country_codes(codes: &[&str]) -> Result<Vec<String>, String> {
     let all_layouts = get_all_keyboard_layouts();
     let mut valid_codes = Vec::new();
     let mut invalid_codes = Vec::new();
-    
+
     for code in codes {
         if all_layouts.iter().any(|l| l.short_code == *code) {
             valid_codes.push(code.to_string());
@@ -211,17 +228,37 @@ pub fn validate_country_codes(codes: &[&str]) -> Result<Vec<String>, String> {
             invalid_codes.push(code.to_string());
         }
     }
-    
+
     if !invalid_codes.is_empty() {
         return Err(format!(
             "Unknown country codes: {}. Use 'ccaps -status' to see available codes.",
             invalid_codes.join(", ")
         ));
     }
-    
+
     if valid_codes.is_empty() {
         return Err("No valid country codes provided.".to_string());
     }
-    
+
     Ok(valid_codes)
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_layout_request_goes_to_foreground_window() {
+        let foreground = 0x1234 as HWND;
+        assert_eq!(layout_request_target(foreground), Some(foreground));
+    }
+
+    #[test]
+    fn test_layout_request_never_broadcasts() {
+        assert_eq!(layout_request_target(HWND_BROADCAST), None);
+    }
+
+    #[test]
+    fn test_layout_request_skipped_without_foreground_window() {
+        assert_eq!(layout_request_target(ptr::null_mut()), None);
+    }
 }

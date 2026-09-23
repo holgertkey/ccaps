@@ -1,5 +1,9 @@
 # Changelog
 
+### v0.10.1
+- 🐛 Fixed other applications (e.g. OpenGL apps on NVIDIA drivers) freezing on a layout switch: `WM_INPUTLANGCHANGEREQUEST` is now posted only to the foreground window instead of `HWND_BROADCAST`
+- ✅ Added unit tests for the layout-request target
+
 ### v0.10.0
 - 🔄 Renamed interactive menu commands: `exit` → `quit` (stop background process only), `quit`/`q` → `exit`/`e` (exit interactive menu)
 

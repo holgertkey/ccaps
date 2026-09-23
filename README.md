@@ -1,4 +1,4 @@
-# CCaps Layout Switcher v0.10.0
+# CCaps Layout Switcher v0.10.1
 
 A lightweight Windows keyboard layout switcher that repurposes the Caps Lock key for quick layout switching with country-specific filtering and configuration persistence.
 
@@ -163,7 +163,7 @@ Example configuration file:
 ```json
 {
   "country_codes": ["de"],
-  "version": "0.10.0"
+  "version": "0.10.1"
 }
 ```
 
@@ -274,7 +274,7 @@ The executable will be created at `target/release/ccaps.exe`.
 ## Technical Details
 
 - **Language**: Rust
-- **Version**: 0.10.0
+- **Version**: 0.10.1
 - **Windows APIs**: WinAPI (winuser, winreg, synchapi, fileapi)
 - **Hook Type**: Low-level keyboard hook (WH_KEYBOARD_LL)
 - **Registry**: Uses `HKEY_CURRENT_USER\SOFTWARE\Microsoft\Windows\CurrentVersion\Run`

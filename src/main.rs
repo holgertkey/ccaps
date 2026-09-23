@@ -1,24 +1,24 @@
+mod cli;
+mod config;
+mod interactive_menu;
 mod keyboard_hook;
 mod layout_indicator;
 mod layout_manager;
-mod cli;
-mod interactive_menu;
-mod config;
 
-use std::ptr;
-use std::mem;
+use cli::{create_mutex, execute_command, parse_args, should_run_in_background, CliCommand};
+use interactive_menu::show_interactive_menu;
+use keyboard_hook::{initialize_layout_switching, install_hook, uninstall_hook};
 use std::ffi::OsString;
+use std::mem;
 use std::os::windows::ffi::OsStrExt;
+use std::ptr;
 use std::sync::atomic::{AtomicPtr, Ordering};
-use winapi::um::winuser::*;
-use winapi::um::handleapi::CloseHandle;
-use winapi::um::wincon::*;
-use winapi::um::errhandlingapi::GetLastError;
 use winapi::shared::minwindef::*;
 use winapi::shared::windef::*;
-use keyboard_hook::{install_hook, uninstall_hook, initialize_layout_switching};
-use cli::{parse_args, execute_command, CliCommand, create_mutex, should_run_in_background};
-use interactive_menu::show_interactive_menu;
+use winapi::um::errhandlingapi::GetLastError;
+use winapi::um::handleapi::CloseHandle;
+use winapi::um::wincon::*;
+use winapi::um::winuser::*;
 
 // Global atomic pointer to store mutex handle
 static MUTEX_HANDLE: AtomicPtr<winapi::ctypes::c_void> = AtomicPtr::new(ptr::null_mut());
@@ -26,17 +26,24 @@ static MUTEX_HANDLE: AtomicPtr<winapi::ctypes::c_void> = AtomicPtr::new(ptr::nul
 fn main() {
     // Parse command line arguments
     let command = parse_args();
-    
+
     // Handle CLI commands that don't require running the main loop
     match command {
-        CliCommand::Start(_) | CliCommand::Stop | CliCommand::Exit | CliCommand::Status | CliCommand::Help | CliCommand::Version | CliCommand::Unknown(_) => {
+        CliCommand::Start(_)
+        | CliCommand::Stop
+        | CliCommand::Exit
+        | CliCommand::Status
+        | CliCommand::Help
+        | CliCommand::Version
+        | CliCommand::Unknown(_) => {
             let (exit_code, _) = execute_command(command);
             std::process::exit(exit_code);
         }
         CliCommand::Background(country_codes) => {
             // Execute background-specific logic and get country codes
-            let (_, final_country_codes) = execute_command(CliCommand::Background(country_codes.clone()));
-            
+            let (_, final_country_codes) =
+                execute_command(CliCommand::Background(country_codes.clone()));
+
             // Load configuration from file if no country codes provided via command line
             let country_codes_to_use = if final_country_codes.is_empty() {
                 let config = config::load_config();
@@ -44,17 +51,20 @@ fn main() {
             } else {
                 final_country_codes
             };
-            
+
             // Validate country codes if provided
             if !country_codes_to_use.is_empty() {
                 if let Err(error) = layout_manager::validate_country_codes(
-                    &country_codes_to_use.iter().map(|s| s.as_str()).collect::<Vec<_>>()
+                    &country_codes_to_use
+                        .iter()
+                        .map(|s| s.as_str())
+                        .collect::<Vec<_>>(),
                 ) {
                     eprintln!("Error: {}", error);
                     std::process::exit(1);
                 }
             }
-            
+
             // Continue with normal execution after background setup
             run_main_loop(country_codes_to_use);
         }
@@ -71,13 +81,13 @@ fn main() {
             // Validate country codes if provided
             if !country_codes.is_empty() {
                 if let Err(error) = layout_manager::validate_country_codes(
-                    &country_codes.iter().map(|s| s.as_str()).collect::<Vec<_>>()
+                    &country_codes.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
                 ) {
                     eprintln!("Error: {}", error);
                     std::process::exit(1);
                 }
             }
-            
+
             // Direct run mode - continue with normal execution
             run_main_loop(country_codes);
         }
@@ -91,10 +101,10 @@ fn run_main_loop(country_codes: Vec<String>) {
         eprintln!("Failed to create mutex");
         return;
     }
-    
+
     // Store mutex handle in atomic pointer
     MUTEX_HANDLE.store(mutex, Ordering::SeqCst);
-    
+
     // Check if another instance is already running
     unsafe {
         if GetLastError() == winapi::shared::winerror::ERROR_ALREADY_EXISTS {
@@ -105,9 +115,9 @@ fn run_main_loop(country_codes: Vec<String>) {
             return;
         }
     }
-    
+
     let is_background = should_run_in_background();
-    
+
     if is_background {
         // Detaching from the parent process in the background
         unsafe {
@@ -125,25 +135,35 @@ fn run_main_loop(country_codes: Vec<String>) {
         println!("  ON  = Non-English layout");
         println!();
     }
-    
+
     unsafe {
         // Initialize layout switching with country codes
         initialize_layout_switching(&country_codes);
-        
+
         if !is_background {
             // Show current layout info only in foreground mode
             if let Some(current_layout) = layout_manager::get_current_layout() {
-                println!("Current layout: {} ({})", current_layout.name, current_layout.short_code);
-                println!("Setting Scroll Lock to: {}", if current_layout.is_english { "OFF" } else { "ON" });
+                println!(
+                    "Current layout: {} ({})",
+                    current_layout.name, current_layout.short_code
+                );
+                println!(
+                    "Setting Scroll Lock to: {}",
+                    if current_layout.is_english {
+                        "OFF"
+                    } else {
+                        "ON"
+                    }
+                );
             } else {
                 println!("Could not detect current layout");
             }
             println!();
         }
-        
+
         // Set initial Scroll Lock state based on current layout
         layout_indicator::update_layout_indicator();
-        
+
         // Install the hook
         match install_hook() {
             Ok(()) => {
@@ -154,7 +174,7 @@ fn run_main_loop(country_codes: Vec<String>) {
                 if !is_background {
                     println!("Hook installed successfully");
                     println!("Layout switcher is now active!");
-                    
+
                     // Show switching configuration
                     let (current_index, layout_names) = keyboard_hook::get_switching_status();
                     if !layout_names.is_empty() {
@@ -164,12 +184,12 @@ fn run_main_loop(country_codes: Vec<String>) {
                             println!("  {}{}", name, marker);
                         }
                     }
-                    
+
                     println!();
                     println!("Press Ctrl+C to exit");
                     println!();
                 }
-            },
+            }
             Err(e) => {
                 if !is_background {
                     eprintln!("Hook installation error: {}", e);
@@ -178,7 +198,7 @@ fn run_main_loop(country_codes: Vec<String>) {
                 return;
             }
         }
-        
+
         // Ctrl+C handler for proper shutdown (only for foreground mode)
         if !is_background {
             // Try to set up Ctrl+C handler, but don't panic if it fails
@@ -191,10 +211,10 @@ fn run_main_loop(country_codes: Vec<String>) {
                 println!("You may need to close the console window manually to exit.");
             }
         }
-        
+
         // Create hidden window for message handling
         create_message_window();
-        
+
         // Main message processing loop
         let mut msg: MSG = mem::zeroed();
         loop {
@@ -202,22 +222,22 @@ fn run_main_loop(country_codes: Vec<String>) {
             if result == 0 || result == -1 {
                 break;
             }
-            
+
             // Handle quit message
             if msg.message == WM_QUIT {
                 break;
             }
-            
+
             // Handle other system messages
             if msg.message == WM_QUERYENDSESSION || msg.message == WM_ENDSESSION {
                 // System shutdown - cleanup and exit gracefully
                 break;
             }
-            
+
             TranslateMessage(&msg);
             DispatchMessageW(&msg);
         }
-        
+
         // Cleanup
         cleanup_and_exit();
     }
@@ -272,7 +292,7 @@ unsafe fn create_message_window() {
             _ => return DefWindowProcW(hwnd, msg, wparam, lparam),
         }
     }
-    
+
     // Register window class
     let wc = WNDCLASSW {
         style: 0,
@@ -286,22 +306,25 @@ unsafe fn create_message_window() {
         lpszMenuName: ptr::null(),
         lpszClassName: class_name_wide.as_ptr(),
     };
-    
+
     RegisterClassW(&wc);
-    
+
     // Create hidden window
     let hwnd = CreateWindowExW(
         0,
         class_name_wide.as_ptr(),
         window_name_wide.as_ptr(),
         0, // No window style (completely hidden)
-        0, 0, 0, 0, // Position and size (irrelevant for hidden window)
+        0,
+        0,
+        0,
+        0,            // Position and size (irrelevant for hidden window)
         HWND_MESSAGE, // Message-only window (not displayed in UI)
         ptr::null_mut(),
         GetModuleHandleW(ptr::null()),
         ptr::null_mut(),
     );
-    
+
     if hwnd.is_null() {
         // Fallback: try to create a regular hidden window
         CreateWindowExW(

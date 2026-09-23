@@ -1,15 +1,15 @@
-use std::ptr;
-use std::mem;
-use winapi::um::winuser::*;
-use winapi::shared::minwindef::HKL;
 use crate::keyboard_hook::CCAPS_EXTRA_INFO;
+use std::mem;
+use std::ptr;
+use winapi::shared::minwindef::HKL;
+use winapi::um::winuser::*;
 
 // Function to check if given layout is English
 unsafe fn is_english_layout_hkl(layout: HKL) -> bool {
     // Extract language ID from layout handle
     // Lower 16 bits contain the language identifier
     let lang_id = (layout as usize) & 0xFFFF;
-    
+
     // English language IDs:
     // 0x0409 - English (United States)
     // 0x0809 - English (United Kingdom)
@@ -25,9 +25,8 @@ unsafe fn is_english_layout_hkl(layout: HKL) -> bool {
     // 0x3009 - English (Zimbabwe)
     // 0x3409 - English (Philippines)
     match lang_id {
-        0x0409 | 0x0809 | 0x0c09 | 0x1009 | 0x1409 | 
-        0x1809 | 0x1c09 | 0x2009 | 0x2409 | 0x2809 | 
-        0x2c09 | 0x3009 | 0x3409 => true,
+        0x0409 | 0x0809 | 0x0c09 | 0x1009 | 0x1409 | 0x1809 | 0x1c09 | 0x2009 | 0x2409 | 0x2809
+        | 0x2c09 | 0x3009 | 0x3409 => true,
         _ => false,
     }
 }
@@ -38,22 +37,22 @@ unsafe fn set_scroll_lock_state(enabled: bool) {
         // Get current Scroll Lock state
         let current_state = GetKeyState(VK_SCROLL) & 1;
         let is_currently_on = current_state != 0;
-        
+
         // Only change if state is different
         if is_currently_on != enabled {
             // Create input for toggling Scroll Lock
             let mut inputs: [INPUT; 2] = mem::zeroed();
-            
+
             // First INPUT - Scroll Lock press
             inputs[0].type_ = INPUT_KEYBOARD;
             inputs[0].u.ki_mut().wVk = VK_SCROLL as u16;
             inputs[0].u.ki_mut().dwFlags = 0;
-            
+
             // Second INPUT - Scroll Lock release
             inputs[1].type_ = INPUT_KEYBOARD;
             inputs[1].u.ki_mut().wVk = VK_SCROLL as u16;
             inputs[1].u.ki_mut().dwFlags = KEYEVENTF_KEYUP;
-            
+
             // Send press and release events
             SendInput(2, inputs.as_mut_ptr(), mem::size_of::<INPUT>() as i32);
         }
@@ -89,7 +88,7 @@ unsafe fn is_english_layout() -> bool {
 pub unsafe fn update_layout_indicator_with_layout(layout: HKL) {
     unsafe {
         let is_english = is_english_layout_hkl(layout);
-        
+
         // English layout: Scroll Lock OFF
         // Non-English layout: Scroll Lock ON
         set_scroll_lock_state(!is_english);
@@ -186,7 +185,10 @@ mod tests {
     fn test_english_us_layout_detection() {
         unsafe {
             let hkl = create_test_hkl(0x0409);
-            assert!(is_english_layout_hkl(hkl), "English (US) should be detected as English");
+            assert!(
+                is_english_layout_hkl(hkl),
+                "English (US) should be detected as English"
+            );
         }
     }
 
@@ -194,7 +196,10 @@ mod tests {
     fn test_english_uk_layout_detection() {
         unsafe {
             let hkl = create_test_hkl(0x0809);
-            assert!(is_english_layout_hkl(hkl), "English (UK) should be detected as English");
+            assert!(
+                is_english_layout_hkl(hkl),
+                "English (UK) should be detected as English"
+            );
         }
     }
 
@@ -263,8 +268,14 @@ mod tests {
 
             // Language ID should still be correctly extracted
             let extracted_lang_id = (hkl as usize) & 0xFFFF;
-            assert_eq!(extracted_lang_id, lang_id, "Language ID should be correctly extracted from HKL");
-            assert!(is_english_layout_hkl(hkl), "English layout should be detected even with device handle");
+            assert_eq!(
+                extracted_lang_id, lang_id,
+                "Language ID should be correctly extracted from HKL"
+            );
+            assert!(
+                is_english_layout_hkl(hkl),
+                "English layout should be detected even with device handle"
+            );
         }
     }
 
@@ -272,7 +283,10 @@ mod tests {
     fn test_zero_hkl() {
         unsafe {
             let hkl = create_test_hkl(0x0000);
-            assert!(!is_english_layout_hkl(hkl), "Zero HKL should not be detected as English");
+            assert!(
+                !is_english_layout_hkl(hkl),
+                "Zero HKL should not be detected as English"
+            );
         }
     }
 }

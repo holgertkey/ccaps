@@ -1,28 +1,28 @@
-use std::io::{self, Write};
 use crate::cli::{execute_command, CliCommand};
 use crate::layout_manager;
+use std::io::{self, Write};
 
 pub fn show_interactive_menu() -> (i32, Vec<String>) {
     // Show initial menu only once
     show_status();
     show_menu();
-    
+
     // No Ctrl+C handler in menu - let main.rs handle it later
     loop {
         print!("Enter command: ");
         io::stdout().flush().unwrap();
-        
+
         let mut input = String::new();
         match io::stdin().read_line(&mut input) {
             Ok(_) => {
                 let input = input.trim();
-                
+
                 if input.is_empty() {
                     continue;
                 }
-                
+
                 let command = parse_menu_command(input);
-                
+
                 match command {
                     CliCommand::Run(country_codes) => {
                         if country_codes.is_empty() {
@@ -30,11 +30,14 @@ pub fn show_interactive_menu() -> (i32, Vec<String>) {
                             println!("Starting in foreground mode with all layouts...");
                         } else {
                             println!();
-                            println!("Starting in foreground mode with country codes: {}", country_codes.join(", "));
+                            println!(
+                                "Starting in foreground mode with country codes: {}",
+                                country_codes.join(", ")
+                            );
                         }
                         // Don't install Ctrl+C handler here - let main.rs handle it
                         return (0, country_codes); // Return country codes to main
-                    },
+                    }
                     CliCommand::Help => {
                         println!();
                         let (result, _) = execute_command(command);
@@ -42,7 +45,7 @@ pub fn show_interactive_menu() -> (i32, Vec<String>) {
                             println!("Command failed with code: {}", result);
                         }
                         println!();
-                    },
+                    }
                     CliCommand::Status => {
                         println!();
                         let (result, _) = execute_command(command);
@@ -50,21 +53,21 @@ pub fn show_interactive_menu() -> (i32, Vec<String>) {
                             println!("Command failed with code: {}", result);
                         }
                         println!();
-                    },
+                    }
                     CliCommand::Unknown(ref cmd) if cmd == "menu" => {
                         println!();
                         show_menu(); // Show menu again
                         println!();
-                    },
+                    }
                     CliCommand::Unknown(ref cmd) if cmd == "exit" => {
                         println!();
                         println!("Goodbye!");
                         return (1, vec![]);
-                    },
+                    }
                     CliCommand::Unknown(ref cmd) if cmd.starts_with("Invalid codes:") => {
                         // Don't execute invalid commands, just continue
                         println!();
-                    },
+                    }
                     _ => {
                         println!();
                         let (result, _) = execute_command(command);
@@ -74,7 +77,7 @@ pub fn show_interactive_menu() -> (i32, Vec<String>) {
                         println!();
                     }
                 }
-            },
+            }
             Err(error) => {
                 eprintln!("Error reading input: {}", error);
                 return (1, vec![]);
@@ -91,7 +94,7 @@ fn show_status() {
     println!("║                 Keyboard layout switcher using Caps Lock key                 ║");
     println!("╚══════════════════════════════════════════════════════════════════════════════╝");
     println!();
-    
+
     // Show current status
     let (result, _) = execute_command(CliCommand::Status);
     if result != 0 {
@@ -125,28 +128,29 @@ fn show_menu() {
 
 fn parse_menu_command(input: &str) -> CliCommand {
     let parts: Vec<&str> = input.split_whitespace().collect();
-    
+
     if parts.is_empty() {
         return CliCommand::Unknown(input.to_string());
     }
-    
+
     match parts[0].to_lowercase().as_str() {
         "run" => {
             // Parse country codes after run command
-            let country_codes: Vec<String> = parts[1..].iter()
+            let country_codes: Vec<String> = parts[1..]
+                .iter()
                 .filter(|arg| arg.starts_with('-') && arg.len() > 1)
                 .map(|arg| arg[1..].to_string())
                 .collect();
-            
+
             // Validate country codes if provided
             if !country_codes.is_empty() {
                 match layout_manager::validate_country_codes(
-                    &country_codes.iter().map(|s| s.as_str()).collect::<Vec<_>>()
+                    &country_codes.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
                 ) {
                     Ok(_) => {
                         println!();
                         println!("✓ Validated country codes: {}", country_codes.join(", "));
-                    },
+                    }
                     Err(error) => {
                         println!();
                         println!("✗ Error: {}", error);
@@ -157,24 +161,25 @@ fn parse_menu_command(input: &str) -> CliCommand {
                 println!();
                 println!("✓ Using all available layouts");
             }
-            
+
             CliCommand::Run(country_codes)
-        },
+        }
         "start" => {
             // Parse country codes after start command
-            let country_codes: Vec<String> = parts[1..].iter()
+            let country_codes: Vec<String> = parts[1..]
+                .iter()
                 .filter(|arg| arg.starts_with('-') && arg.len() > 1)
                 .map(|arg| arg[1..].to_string())
                 .collect();
-            
+
             // Validate country codes if provided
             if !country_codes.is_empty() {
                 match layout_manager::validate_country_codes(
-                    &country_codes.iter().map(|s| s.as_str()).collect::<Vec<_>>()
+                    &country_codes.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
                 ) {
                     Ok(_) => {
                         println!("✓ Validated country codes: {}", country_codes.join(", "));
-                    },
+                    }
                     Err(error) => {
                         println!("✗ Error: {}", error);
                         return CliCommand::Unknown(format!("Invalid codes: {}", input));
@@ -183,9 +188,9 @@ fn parse_menu_command(input: &str) -> CliCommand {
             } else {
                 println!("✓ Using all available layouts");
             }
-            
+
             CliCommand::Start(country_codes)
-        },
+        }
         "stop" => CliCommand::Stop,
         "quit" => CliCommand::Exit,
         "status" => CliCommand::Status,
