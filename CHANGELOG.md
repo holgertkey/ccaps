@@ -6,6 +6,7 @@
 - 🐛 Fixed the Scroll Lock indicator drifting out of sync with the layout: it is now re-checked every 250 ms (a coalescable timer, so Windows can batch the wake-ups) against the foreground window's actual layout, so switching with Win+Space, focusing a window that has another layout, or a window that ignored the switch request no longer leaves it wrong
 - 🐛 Caps Lock now switches to the layout after the foreground window's actual one, instead of following CCaps's own counter
 - ✅ Added unit tests for next-layout selection and indicator sync decisions
+- 🔧 Added CI workflow: formatting, clippy and tests on every push and pull request to `main`
 
 ### v0.10.0
 - 🔄 Renamed interactive menu commands: `exit` → `quit` (stop background process only), `quit`/`q` → `exit`/`e` (exit interactive menu)
