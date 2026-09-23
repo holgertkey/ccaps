@@ -38,10 +38,11 @@ pub fn get_all_keyboard_layouts() -> Vec<LayoutInfo> {
         let mut layouts: [HKL; 20] = mem::zeroed();
         let layout_count = GetKeyboardLayoutList(20, layouts.as_mut_ptr());
 
-        let mut layout_infos = Vec::new();
-        for i in 0..layout_count as usize {
-            layout_infos.push(LayoutInfo::new(layouts[i]));
-        }
+        let mut layout_infos: Vec<LayoutInfo> = layouts
+            .iter()
+            .take(layout_count as usize)
+            .map(|&hkl| LayoutInfo::new(hkl))
+            .collect();
 
         // Sort layouts: English first, then alphabetically
         layout_infos.sort_by(|a, b| match (a.is_english, b.is_english) {

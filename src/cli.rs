@@ -615,7 +615,7 @@ fn start_background_process(country_codes: &[String]) -> Result<(), String> {
 
     // Add country codes to the background process
     for code in country_codes {
-        command.arg(&format!("-{}", code));
+        command.arg(format!("-{}", code));
     }
 
     // Use CREATE_NO_WINDOW flag to prevent creating a console window

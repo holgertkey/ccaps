@@ -3,6 +3,9 @@
 ### v0.10.1
 - 🐛 Fixed other applications (e.g. OpenGL apps on NVIDIA drivers) freezing on a layout switch: `WM_INPUTLANGCHANGEREQUEST` is now posted only to the foreground window instead of `HWND_BROADCAST`
 - ✅ Added unit tests for the layout-request target
+- 🐛 Fixed the Scroll Lock indicator drifting out of sync with the layout: it is now re-checked every 250 ms (a coalescable timer, so Windows can batch the wake-ups) against the foreground window's actual layout, so switching with Win+Space, focusing a window that has another layout, or a window that ignored the switch request no longer leaves it wrong
+- 🐛 Caps Lock now switches to the layout after the foreground window's actual one, instead of following CCaps's own counter
+- ✅ Added unit tests for next-layout selection and indicator sync decisions
 
 ### v0.10.0
 - 🔄 Renamed interactive menu commands: `exit` → `quit` (stop background process only), `quit`/`q` → `exit`/`e` (exit interactive menu)

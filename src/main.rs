@@ -215,6 +215,9 @@ fn run_main_loop(country_codes: Vec<String>) {
         // Create hidden window for message handling
         create_message_window();
 
+        // Keep Scroll Lock in step with the foreground window's layout (timer on this thread)
+        layout_indicator::start_indicator_sync();
+
         // Main message processing loop
         let mut msg: MSG = mem::zeroed();
         loop {
@@ -283,13 +286,13 @@ unsafe fn create_message_window() {
             WM_QUERYENDSESSION | WM_ENDSESSION => {
                 // System shutdown - cleanup and exit gracefully
                 PostQuitMessage(0);
-                return 0;
+                0
             }
             WM_DESTROY => {
                 PostQuitMessage(0);
-                return 0;
+                0
             }
-            _ => return DefWindowProcW(hwnd, msg, wparam, lparam),
+            _ => DefWindowProcW(hwnd, msg, wparam, lparam),
         }
     }
 

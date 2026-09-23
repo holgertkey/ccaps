@@ -159,9 +159,15 @@ unsafe fn switch_keyboard_layout() {
             return;
         }
 
-        // Move to next layout
-        hook_data.current_layout_index =
-            (hook_data.current_layout_index + 1) % hook_data.selected_layouts.len();
+        // Move to the layout after the one the foreground window actually has, so that
+        // switches made elsewhere (Win+Space, per-window layouts, a rejected request)
+        // don't leave CCaps cycling from a stale position
+        let hkls: Vec<usize> = hook_data.selected_layouts.iter().map(|l| l.hkl).collect();
+        let current_index = match layout_manager::get_current_layout() {
+            Some(current) => hkls.iter().position(|&hkl| hkl == current.hkl),
+            None => Some(hook_data.current_layout_index),
+        };
+        hook_data.current_layout_index = next_layout_index(hkls.len(), current_index);
         let next_layout = &hook_data.selected_layouts[hook_data.current_layout_index];
 
         // Switch to the new layout
@@ -169,6 +175,16 @@ unsafe fn switch_keyboard_layout() {
 
         // Update Scroll Lock indicator
         layout_indicator::update_layout_indicator_with_layout(next_layout.get_hkl());
+    }
+}
+
+// Index of the layout to switch to, given how many layouts are selected and the index
+// of the current one (None when the current layout isn't among them: start over at
+// the first layout)
+fn next_layout_index(layout_count: usize, current_index: Option<usize>) -> usize {
+    match current_index {
+        Some(index) => (index + 1) % layout_count,
+        None => 0,
     }
 }
 
@@ -247,6 +263,23 @@ pub fn get_switching_status() -> (usize, Vec<String>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_next_layout_follows_current_layout() {
+        assert_eq!(next_layout_index(3, Some(0)), 1);
+        assert_eq!(next_layout_index(3, Some(1)), 2);
+    }
+
+    #[test]
+    fn test_next_layout_wraps_around() {
+        assert_eq!(next_layout_index(3, Some(2)), 0);
+    }
+
+    #[test]
+    fn test_next_layout_starts_over_when_current_is_not_selected() {
+        // e.g. the user switched to a layout outside CCaps's set with Win+Space
+        assert_eq!(next_layout_index(3, None), 0);
+    }
 
     #[test]
     fn test_ccaps_extra_info_is_nonzero() {

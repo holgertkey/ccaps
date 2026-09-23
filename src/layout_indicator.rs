@@ -1,7 +1,12 @@
 use crate::keyboard_hook::CCAPS_EXTRA_INFO;
 use std::mem;
 use std::ptr;
-use winapi::shared::minwindef::HKL;
+use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
+use winapi::shared::basetsd::UINT_PTR;
+use winapi::shared::minwindef::{DWORD, HKL, UINT};
+use winapi::shared::windef::HWND;
 use winapi::um::winuser::*;
 
 // Function to check if given layout is English
@@ -24,11 +29,22 @@ unsafe fn is_english_layout_hkl(layout: HKL) -> bool {
     // 0x2c09 - English (Trinidad)
     // 0x3009 - English (Zimbabwe)
     // 0x3409 - English (Philippines)
-    match lang_id {
-        0x0409 | 0x0809 | 0x0c09 | 0x1009 | 0x1409 | 0x1809 | 0x1c09 | 0x2009 | 0x2409 | 0x2809
-        | 0x2c09 | 0x3009 | 0x3409 => true,
-        _ => false,
-    }
+    matches!(
+        lang_id,
+        0x0409
+            | 0x0809
+            | 0x0c09
+            | 0x1009
+            | 0x1409
+            | 0x1809
+            | 0x1c09
+            | 0x2009
+            | 0x2409
+            | 0x2809
+            | 0x2c09
+            | 0x3009
+            | 0x3409
+    )
 }
 
 // Function to set Scroll Lock state
@@ -84,25 +100,112 @@ unsafe fn is_english_layout() -> bool {
     }
 }
 
-// Public function to update Scroll Lock indicator with specific layout
+// Scroll Lock state CCaps last applied: INDICATOR_UNKNOWN, INDICATOR_OFF or INDICATOR_ON
+const INDICATOR_UNKNOWN: u8 = 0;
+const INDICATOR_OFF: u8 = 1;
+const INDICATOR_ON: u8 = 2;
+static LAST_INDICATOR: AtomicU8 = AtomicU8::new(INDICATOR_UNKNOWN);
+
+// When CCaps last requested a layout switch; the periodic sync leaves the indicator
+// alone for SWITCH_GRACE after it, while the foreground window applies the request
+static LAST_SWITCH: Mutex<Option<Instant>> = Mutex::new(None);
+const SWITCH_GRACE: Duration = Duration::from_millis(500);
+
+// How often the indicator is checked against the foreground window's layout
+const SYNC_INTERVAL_MS: u32 = 250;
+
+// How much later than SYNC_INTERVAL_MS Windows may fire the timer, so that it can
+// coalesce the wake-up with other timers instead of waking the CPU just for CCaps
+const SYNC_TOLERANCE_MS: u32 = 100;
+
+// Sets Scroll Lock to `enabled` and remembers it as the last applied state
+unsafe fn apply_indicator(enabled: bool) {
+    unsafe {
+        set_scroll_lock_state(enabled);
+        LAST_INDICATOR.store(
+            if enabled { INDICATOR_ON } else { INDICATOR_OFF },
+            Ordering::SeqCst,
+        );
+    }
+}
+
+// Decides whether the periodic sync must change Scroll Lock: only when the wanted
+// state differs from the one CCaps last applied, and not during the grace period after
+// a switch. Comparing with the last applied state (not the live key state) leaves a
+// manual Scroll Lock press alone until the layout changes again.
+fn sync_action(last_applied: u8, wanted_on: bool, in_grace: bool) -> Option<bool> {
+    if in_grace {
+        return None;
+    }
+    let wanted = if wanted_on {
+        INDICATOR_ON
+    } else {
+        INDICATOR_OFF
+    };
+    if last_applied == wanted {
+        None
+    } else {
+        Some(wanted_on)
+    }
+}
+
+// Public function to update Scroll Lock indicator with specific layout.
+// Called right after CCaps requested a switch to `layout`: shows the new state at once
+// and starts the grace period during which the periodic sync doesn't override it.
 pub unsafe fn update_layout_indicator_with_layout(layout: HKL) {
     unsafe {
-        let is_english = is_english_layout_hkl(layout);
+        if let Ok(mut last_switch) = LAST_SWITCH.lock() {
+            *last_switch = Some(Instant::now());
+        }
 
         // English layout: Scroll Lock OFF
         // Non-English layout: Scroll Lock ON
-        set_scroll_lock_state(!is_english);
+        apply_indicator(!is_english_layout_hkl(layout));
     }
 }
 
 // Public function to update Scroll Lock indicator based on current layout
 pub unsafe fn update_layout_indicator() {
     unsafe {
-        let is_english = is_english_layout();
-
         // English layout: Scroll Lock OFF
         // Non-English layout: Scroll Lock ON
-        set_scroll_lock_state(!is_english);
+        apply_indicator(!is_english_layout());
+    }
+}
+
+// Timer callback: keeps Scroll Lock in step with the foreground window's actual layout,
+// which can change without CCaps (Win+Space, focusing a window that has another layout,
+// a window that ignored CCaps's switch request)
+unsafe extern "system" fn sync_timer_proc(_hwnd: HWND, _msg: UINT, _id: UINT_PTR, _time: DWORD) {
+    unsafe {
+        let in_grace = LAST_SWITCH
+            .lock()
+            .ok()
+            .and_then(|last_switch| *last_switch)
+            .is_some_and(|at| at.elapsed() < SWITCH_GRACE);
+        let last_applied = LAST_INDICATOR.load(Ordering::SeqCst);
+
+        if let Some(enabled) = sync_action(last_applied, !is_english_layout(), in_grace) {
+            apply_indicator(enabled);
+        }
+    }
+}
+
+// Public function to start keeping the indicator in sync. Uses a thread timer, so it
+// must be called on the thread that runs the message loop.
+pub unsafe fn start_indicator_sync() {
+    unsafe {
+        let timer = SetCoalescableTimer(
+            ptr::null_mut(),
+            0,
+            SYNC_INTERVAL_MS,
+            Some(sync_timer_proc),
+            SYNC_TOLERANCE_MS,
+        );
+        if timer == 0 {
+            // Coalescing unavailable: fall back to a plain timer
+            SetTimer(ptr::null_mut(), 0, SYNC_INTERVAL_MS, Some(sync_timer_proc));
+        }
     }
 }
 
@@ -175,6 +278,35 @@ pub unsafe fn get_current_layout_info() -> (String, bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_sync_turns_indicator_on_when_layout_became_non_english() {
+        assert_eq!(sync_action(INDICATOR_OFF, true, false), Some(true));
+    }
+
+    #[test]
+    fn test_sync_turns_indicator_off_when_layout_became_english() {
+        assert_eq!(sync_action(INDICATOR_ON, false, false), Some(false));
+    }
+
+    #[test]
+    fn test_sync_applies_state_when_nothing_was_applied_yet() {
+        assert_eq!(sync_action(INDICATOR_UNKNOWN, false, false), Some(false));
+        assert_eq!(sync_action(INDICATOR_UNKNOWN, true, false), Some(true));
+    }
+
+    #[test]
+    fn test_sync_does_nothing_when_state_already_matches() {
+        // Leaves a manual Scroll Lock press alone until the layout changes again
+        assert_eq!(sync_action(INDICATOR_ON, true, false), None);
+        assert_eq!(sync_action(INDICATOR_OFF, false, false), None);
+    }
+
+    #[test]
+    fn test_sync_waits_during_grace_period_after_switch() {
+        // The foreground window may not have applied the switch request yet
+        assert_eq!(sync_action(INDICATOR_ON, false, true), None);
+    }
 
     // Helper function to create a fake HKL from a language ID
     fn create_test_hkl(lang_id: usize) -> HKL {
