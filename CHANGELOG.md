@@ -1,5 +1,9 @@
 # Changelog
 
+### v0.10.2
+- 🐛 Fixed Caps Lock not switching the layout in dialogs such as the Explorer "Save As" file name field: the layout request is now posted to the focused control of the foreground window (falling back to the foreground window itself)
+- ✅ Added unit tests for the focused-control layout-request target
+
 ### v0.10.1
 - 🐛 Fixed other applications (e.g. OpenGL apps on NVIDIA drivers) freezing on a layout switch: `WM_INPUTLANGCHANGEREQUEST` is now posted only to the foreground window instead of `HWND_BROADCAST`
 - ✅ Added unit tests for the layout-request target

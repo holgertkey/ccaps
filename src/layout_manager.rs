@@ -113,23 +113,47 @@ pub fn switch_to_layout(layout: &LayoutInfo) {
         // Activate new layout
         ActivateKeyboardLayout(hkl, 0);
 
-        // Ask the foreground window to change its layout. This used to be posted to
-        // HWND_BROADCAST, which also reached hidden top-level windows of other threads
-        // (e.g. an OpenGL driver's helper windows) and could deadlock such processes
-        // when two of their threads handled the layout change at the same time.
-        if let Some(target) = layout_request_target(hwnd) {
+        // Ask the focused window of the foreground thread to change its layout. This used
+        // to be posted to HWND_BROADCAST, which also reached hidden top-level windows of
+        // other threads (e.g. an OpenGL driver's helper windows) and could deadlock such
+        // processes when two of their threads handled the layout change at the same time.
+        // Posting to the top-level window alone is not enough either: dialogs such as the
+        // Explorer "Save As" dialog ignore the request unless it reaches the focused control.
+        if let Some(target) = layout_request_target(hwnd, focused_window(hwnd)) {
             PostMessageW(target, WM_INPUTLANGCHANGEREQUEST, 0, hkl as LPARAM);
         }
     }
 }
 
-// Returns the window that should receive WM_INPUTLANGCHANGEREQUEST: the foreground
-// window only, never a broadcast.
-fn layout_request_target(foreground: HWND) -> Option<HWND> {
+// Returns the window that has keyboard focus in the thread owning `foreground`,
+// or null if it cannot be determined.
+unsafe fn focused_window(foreground: HWND) -> HWND {
+    unsafe {
+        let thread_id = GetWindowThreadProcessId(foreground, ptr::null_mut());
+        if thread_id == 0 {
+            return ptr::null_mut();
+        }
+
+        let mut info: GUITHREADINFO = mem::zeroed();
+        info.cbSize = mem::size_of::<GUITHREADINFO>() as u32;
+        if GetGUIThreadInfo(thread_id, &mut info) == 0 {
+            return ptr::null_mut();
+        }
+
+        info.hwndFocus
+    }
+}
+
+// Returns the window that should receive WM_INPUTLANGCHANGEREQUEST: the focused window
+// of the foreground thread, or the foreground window itself if nothing has focus.
+// Never a broadcast.
+fn layout_request_target(foreground: HWND, focused: HWND) -> Option<HWND> {
     if foreground.is_null() || foreground == HWND_BROADCAST {
         None
-    } else {
+    } else if focused.is_null() || focused == HWND_BROADCAST {
         Some(foreground)
+    } else {
+        Some(focused)
     }
 }
 
@@ -248,18 +272,34 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_layout_request_goes_to_foreground_window() {
+    fn test_layout_request_goes_to_foreground_window_without_focus() {
         let foreground = 0x1234 as HWND;
-        assert_eq!(layout_request_target(foreground), Some(foreground));
+        assert_eq!(
+            layout_request_target(foreground, ptr::null_mut()),
+            Some(foreground)
+        );
+    }
+
+    #[test]
+    fn test_layout_request_goes_to_focused_control() {
+        // E.g. the file name field of the Explorer "Save As" dialog
+        let dialog = 0x1234 as HWND;
+        let edit = 0x5678 as HWND;
+        assert_eq!(layout_request_target(dialog, edit), Some(edit));
     }
 
     #[test]
     fn test_layout_request_never_broadcasts() {
-        assert_eq!(layout_request_target(HWND_BROADCAST), None);
+        assert_eq!(layout_request_target(HWND_BROADCAST, ptr::null_mut()), None);
+        let foreground = 0x1234 as HWND;
+        assert_eq!(
+            layout_request_target(foreground, HWND_BROADCAST),
+            Some(foreground)
+        );
     }
 
     #[test]
     fn test_layout_request_skipped_without_foreground_window() {
-        assert_eq!(layout_request_target(ptr::null_mut()), None);
+        assert_eq!(layout_request_target(ptr::null_mut(), 0x5678 as HWND), None);
     }
 }
