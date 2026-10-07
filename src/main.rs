@@ -131,43 +131,11 @@ fn run_main_loop(country_codes: Vec<String>) {
     } else {
         // Print a line for every switch and for indicator changes
         console_log::enable();
-
-        // Show startup message in foreground mode
-        println!();
-        println!("═══════════════════════════════════════════════════");
-        println!("       Caps Lock Layout Switcher started!          ");
-        println!("═══════════════════════════════════════════════════");
-        println!("Shift + Caps Lock - toggle Caps Lock");
-        println!("Scroll Lock indicator shows current layout:");
-        println!("  OFF = English layout");
-        println!("  ON  = Non-English layout");
-        println!();
     }
 
     unsafe {
         // Initialize layout switching with country codes
         initialize_layout_switching(&country_codes);
-
-        if !is_background {
-            // Show current layout info only in foreground mode
-            if let Some(current_layout) = layout_manager::get_current_layout() {
-                println!(
-                    "Current layout: {} ({})",
-                    current_layout.name, current_layout.short_code
-                );
-                println!(
-                    "Setting Scroll Lock to: {}",
-                    if current_layout.is_english {
-                        "OFF"
-                    } else {
-                        "ON"
-                    }
-                );
-            } else {
-                println!("Could not detect current layout");
-            }
-            println!();
-        }
 
         // Set initial Scroll Lock state based on current layout
         layout_indicator::update_layout_indicator();
@@ -180,23 +148,7 @@ fn run_main_loop(country_codes: Vec<String>) {
                 layout_indicator::ensure_caps_lock_off();
 
                 if !is_background {
-                    println!("Hook installed successfully");
-                    println!("Layout switcher is now active!");
-
-                    // Show switching configuration
-                    let (current_index, layout_names) = keyboard_hook::get_switching_status();
-                    if !layout_names.is_empty() {
-                        println!("Switching between {} layout(s):", layout_names.len());
-                        for (i, name) in layout_names.iter().enumerate() {
-                            let marker = if i == current_index { " [CURRENT]" } else { "" };
-                            println!("  {}{}", name, marker);
-                        }
-                    }
-
-                    println!();
-                    console_log::print_legend();
-                    println!("Press Ctrl+C to exit");
-                    println!();
+                    print_foreground_header();
                 }
             }
             Err(e) => {
@@ -262,6 +214,22 @@ fn run_main_loop(country_codes: Vec<String>) {
         // Cleanup
         cleanup_and_exit();
     }
+}
+
+// Header shown once when CCaps runs in the foreground: layouts, keys, log legend
+fn print_foreground_header() {
+    let layouts = keyboard_hook::selected_layouts();
+    let current = layout_manager::get_current_layout()
+        .and_then(|current| layouts.iter().position(|l| l.hkl == current.hkl));
+    let layouts: Vec<(String, String)> = layouts
+        .into_iter()
+        .map(|l| (l.short_code, l.name))
+        .collect();
+    println!();
+    println!(
+        "{}",
+        console_log::header(env!("CARGO_PKG_VERSION"), &layouts, current)
+    );
 }
 
 // Simplified function to detach from console

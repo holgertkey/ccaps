@@ -75,19 +75,6 @@ pub fn initialize_layout_switching(country_codes: &[String]) {
             .position(|l| l.hkl == current.hkl)
             .unwrap_or(0);
     }
-
-    println!(
-        "Initialized with {} layout(s):",
-        hook_data.selected_layouts.len()
-    );
-    for (i, layout) in hook_data.selected_layouts.iter().enumerate() {
-        let marker = if i == hook_data.current_layout_index {
-            " [CURRENT]"
-        } else {
-            ""
-        };
-        println!("  {} - {}{}", layout.short_code, layout.name, marker);
-    }
 }
 
 // Flag indicating injected event (from SendInput)
@@ -309,18 +296,12 @@ fn should_pass_through_capslock(flags: u32, dw_extra_info: usize) -> bool {
     (flags & LLKHF_INJECTED) != 0 && dw_extra_info == CCAPS_EXTRA_INFO
 }
 
-// Function to get current layout switching status (for debugging)
-pub fn get_switching_status() -> (usize, Vec<String>) {
-    if let Ok(hook_data) = HOOK_DATA.lock() {
-        let layout_names: Vec<String> = hook_data
-            .selected_layouts
-            .iter()
-            .map(|l| format!("{} ({})", l.name, l.short_code))
-            .collect();
-        (hook_data.current_layout_index, layout_names)
-    } else {
-        (0, vec!["Error: Could not access layout data".to_string()])
-    }
+// Layouts Caps Lock cycles through, in order (for the foreground mode header)
+pub fn selected_layouts() -> Vec<LayoutInfo> {
+    HOOK_DATA
+        .lock()
+        .map(|hook_data| hook_data.selected_layouts.clone())
+        .unwrap_or_default()
 }
 
 #[cfg(test)]

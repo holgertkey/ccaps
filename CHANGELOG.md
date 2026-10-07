@@ -1,7 +1,7 @@
 # Changelog
 
 ### v0.11.0
-- 🔍 `ccaps -run` prints diagnostics: one line per Caps Lock press with the time, layouts, outcome and its reason (e.g. switched with Win+Space, applied late, modifier key held), duration and the foreground application, plus a line whenever the layout changes without CCaps
+- 🔍 `ccaps -run` prints diagnostics: one line per Caps Lock press with the time, layouts, outcome and its reason (e.g. switched with Win+Space, applied late, modifier key held), duration and the foreground application, plus a line whenever the layout changes without CCaps. The startup header is shorter: each layout is listed once, with the current one marked, followed by the keys and what the log lines mean
 - 🔄 **Commands renamed** (systemctl-like: persistent state vs. the running process):
   - `-enable [-xx ...]` (was `-start`): save settings, add to auto-startup and start now
   - `-disable` (was `-stop`): stop, remove from auto-startup and delete settings
