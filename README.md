@@ -8,6 +8,7 @@ A lightweight Windows keyboard layout switcher that repurposes the Caps Lock key
 - **Country Code Filtering**: Choose specific layouts to switch between (e.g., English ↔ German)
 - **Shift + Caps Lock → Caps Lock**: Hold Shift and press Caps Lock to toggle Caps Lock functionality
 - **Visual Indicator**: Scroll Lock LED shows current layout (OFF = English, ON = Non-English)
+- **Verified Switching**: Checks that the window actually switched, and falls back to Win+Space in applications that ignore the layout request
 - **Background Mode**: Runs silently in the background
 - **Auto-startup**: Automatically starts with Windows
 - **Configuration Persistence**: Remembers your layout preferences
@@ -181,9 +182,19 @@ CCaps uses Windows low-level keyboard hooks to intercept Caps Lock key presses a
 1. Installs a system-wide keyboard hook
 2. Intercepts Caps Lock key events
 3. Cycles through selected keyboard layouts (filtered by country codes)
-4. Updates the Scroll Lock indicator to show the current layout
-5. Blocks the default Caps Lock behavior (unless Shift is held)
-6. Saves and restores layout preferences automatically
+4. Asks the focused window to switch its layout, then checks that it actually did
+5. If the window ignored the request, switches with Win+Space instead (see below)
+6. Updates the Scroll Lock indicator from the layout the window actually has
+7. Blocks the default Caps Lock behavior (unless Shift is held)
+8. Saves and restores layout preferences automatically
+
+### Applications That Ignore the Layout Request
+
+Some applications don't handle the standard layout change request, so Caps Lock used to do nothing in them. CCaps now checks the layout after every switch. If it hasn't changed within 150 ms, CCaps presses **Win+Space** (the Windows layout switch shortcut) and re-reads the layout after each press until the target layout is reached.
+
+- In such applications a switch takes about 150–200 ms instead of a few milliseconds
+- Win+Space cycles through **all** installed layouts, so CCaps may press it several times to reach the next selected one; you may briefly see the intermediate layouts
+- To avoid switching twice or triggering another shortcut, the fallback is skipped when the window is busy (not responding), when Shift, Ctrl, Alt or Win is held, when you press Caps Lock again, or when another window gets focus
 
 ### Layout Selection Logic
 
@@ -282,7 +293,20 @@ The executable will be created at `target/release/ccaps.exe`.
 - **Mutex**: Global mutex prevents multiple instances
 - **Layout Detection**: Language ID extraction from HKL handles
 
+## Known Limitations
+
+- **Windows running as administrator**: when an elevated window (e.g. `cmd` or `regedit` started "as administrator") has focus, Windows doesn't pass keyboard input to CCaps, which runs with normal rights. In such windows Caps Lock works as a regular Caps Lock and doesn't switch the layout. Switch the layout with Win+Space there.
+- **Terminals that control Scroll Lock (mintty: Cygwin, MSYS2, Git Bash)**: mintty resets the Scroll Lock LED itself, so the indicator doesn't reflect the layout while a mintty window has focus. Layout switching works normally.
+- **Applications that ignore the layout request**: switched with Win+Space (see [Applications That Ignore the Layout Request](#applications-that-ignore-the-layout-request)), which is slightly slower.
+
 ## Troubleshooting
+
+### Caps Lock toggles Caps Lock in some windows
+The window is probably running as administrator; see [Known Limitations](#known-limitations).
+
+### The Scroll Lock indicator doesn't match the layout
+- In mintty-based terminals (Cygwin, MSYS2, Git Bash) this is expected; see [Known Limitations](#known-limitations)
+- Elsewhere the indicator follows the actual layout within a quarter of a second, also after switching with Win+Space or the mouse
 
 ### Invalid Country Code Error
 ```bash
