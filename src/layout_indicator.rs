@@ -1,4 +1,5 @@
 use crate::keyboard_hook::CCAPS_EXTRA_INFO;
+use crate::layout_manager;
 use std::mem;
 use std::ptr;
 use std::sync::atomic::{AtomicU8, Ordering};
@@ -75,29 +76,10 @@ unsafe fn set_scroll_lock_state(enabled: bool) {
     }
 }
 
-// Function to check if current layout is English
-unsafe fn is_english_layout() -> bool {
-    unsafe {
-        // Get active window
-        let hwnd = GetForegroundWindow();
-
-        // Get current layout handle
-        let current_layout = if hwnd.is_null() {
-            // Fallback: get layout for current thread if no foreground window
-            // This is more reliable during program startup
-            GetKeyboardLayout(0)
-        } else {
-            // Get window thread ID and its layout
-            let thread_id = GetWindowThreadProcessId(hwnd, ptr::null_mut());
-            GetKeyboardLayout(thread_id)
-        };
-
-        if current_layout.is_null() {
-            return false;
-        }
-
-        is_english_layout_hkl(current_layout)
-    }
+// Whether the layout the user is typing with is English, or None if it can't be read
+// (then the indicator is left as it is rather than guessed)
+unsafe fn current_layout_is_english() -> Option<bool> {
+    unsafe { layout_manager::current_layout_hkl().map(|hkl| is_english_layout_hkl(hkl as HKL)) }
 }
 
 // Scroll Lock state CCaps last applied: INDICATOR_UNKNOWN, INDICATOR_OFF or INDICATOR_ON
@@ -132,11 +114,13 @@ unsafe fn apply_indicator(enabled: bool) {
 // Decides whether the periodic sync must change Scroll Lock: only when the wanted
 // state differs from the one CCaps last applied, and not during the grace period after
 // a switch. Comparing with the last applied state (not the live key state) leaves a
-// manual Scroll Lock press alone until the layout changes again.
-fn sync_action(last_applied: u8, wanted_on: bool, in_grace: bool) -> Option<bool> {
+// manual Scroll Lock press alone until the layout changes again. `wanted_on` is None
+// when the layout can't be read: then nothing is changed.
+fn sync_action(last_applied: u8, wanted_on: Option<bool>, in_grace: bool) -> Option<bool> {
     if in_grace {
         return None;
     }
+    let wanted_on = wanted_on?;
     let wanted = if wanted_on {
         INDICATOR_ON
     } else {
@@ -169,7 +153,10 @@ pub unsafe fn update_layout_indicator() {
     unsafe {
         // English layout: Scroll Lock OFF
         // Non-English layout: Scroll Lock ON
-        apply_indicator(!is_english_layout());
+        // Unreadable layout: leave Scroll Lock as it is
+        if let Some(is_english) = current_layout_is_english() {
+            apply_indicator(!is_english);
+        }
     }
 }
 
@@ -185,7 +172,8 @@ unsafe extern "system" fn sync_timer_proc(_hwnd: HWND, _msg: UINT, _id: UINT_PTR
             .is_some_and(|at| at.elapsed() < SWITCH_GRACE);
         let last_applied = LAST_INDICATOR.load(Ordering::SeqCst);
 
-        if let Some(enabled) = sync_action(last_applied, !is_english_layout(), in_grace) {
+        let wanted_on = current_layout_is_english().map(|is_english| !is_english);
+        if let Some(enabled) = sync_action(last_applied, wanted_on, in_grace) {
             apply_indicator(enabled);
         }
     }
@@ -281,31 +269,45 @@ mod tests {
 
     #[test]
     fn test_sync_turns_indicator_on_when_layout_became_non_english() {
-        assert_eq!(sync_action(INDICATOR_OFF, true, false), Some(true));
+        assert_eq!(sync_action(INDICATOR_OFF, Some(true), false), Some(true));
     }
 
     #[test]
     fn test_sync_turns_indicator_off_when_layout_became_english() {
-        assert_eq!(sync_action(INDICATOR_ON, false, false), Some(false));
+        assert_eq!(sync_action(INDICATOR_ON, Some(false), false), Some(false));
     }
 
     #[test]
     fn test_sync_applies_state_when_nothing_was_applied_yet() {
-        assert_eq!(sync_action(INDICATOR_UNKNOWN, false, false), Some(false));
-        assert_eq!(sync_action(INDICATOR_UNKNOWN, true, false), Some(true));
+        assert_eq!(
+            sync_action(INDICATOR_UNKNOWN, Some(false), false),
+            Some(false)
+        );
+        assert_eq!(
+            sync_action(INDICATOR_UNKNOWN, Some(true), false),
+            Some(true)
+        );
     }
 
     #[test]
     fn test_sync_does_nothing_when_state_already_matches() {
         // Leaves a manual Scroll Lock press alone until the layout changes again
-        assert_eq!(sync_action(INDICATOR_ON, true, false), None);
-        assert_eq!(sync_action(INDICATOR_OFF, false, false), None);
+        assert_eq!(sync_action(INDICATOR_ON, Some(true), false), None);
+        assert_eq!(sync_action(INDICATOR_OFF, Some(false), false), None);
+    }
+
+    #[test]
+    fn test_sync_leaves_indicator_alone_when_layout_is_unreadable() {
+        // e.g. a window CCaps can't query: don't guess "non-English" and light Scroll Lock
+        assert_eq!(sync_action(INDICATOR_OFF, None, false), None);
+        assert_eq!(sync_action(INDICATOR_ON, None, false), None);
+        assert_eq!(sync_action(INDICATOR_UNKNOWN, None, false), None);
     }
 
     #[test]
     fn test_sync_waits_during_grace_period_after_switch() {
         // The foreground window may not have applied the switch request yet
-        assert_eq!(sync_action(INDICATOR_ON, false, true), None);
+        assert_eq!(sync_action(INDICATOR_ON, Some(false), true), None);
     }
 
     // Helper function to create a fake HKL from a language ID

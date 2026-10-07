@@ -1,5 +1,11 @@
 # Changelog
 
+### v0.11.0 (unreleased)
+- 🐛 Fixed Caps Lock not switching the layout in classic console windows (`cmd.exe` in conhost): their layout read as 0, so CCaps always picked the first layout and the Scroll Lock indicator blinked. The layout is now read from the console's input thread (via its IME window)
+- 🐛 Fixed a stale layout in Windows 11 Notepad and UWP apps, where the focused control runs on another thread than the window: the current layout is now read from the focused control's thread, so the indicator and the next layout follow the actual one
+- 🐛 The Scroll Lock indicator is left as it is when the layout can't be read, instead of being turned on
+- ✅ Added unit tests for layout reading order and unreadable-layout handling
+
 ### v0.10.2
 - 🐛 Fixed Caps Lock not switching the layout in dialogs such as the Explorer "Save As" file name field: the layout request is now posted to the focused control of the foreground window (falling back to the foreground window itself)
 - ✅ Added unit tests for the focused-control layout-request target

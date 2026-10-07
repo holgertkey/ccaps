@@ -55,19 +55,81 @@ pub fn get_all_keyboard_layouts() -> Vec<LayoutInfo> {
     }
 }
 
+#[link(name = "imm32")]
+extern "system" {
+    fn ImmGetDefaultIMEWnd(hwnd: HWND) -> HWND;
+}
+
 pub fn get_current_layout() -> Option<LayoutInfo> {
+    current_layout_hkl().map(|hkl| LayoutInfo::new(hkl as HKL))
+}
+
+// Layout the user is typing with right now, or None if it cannot be read (e.g. the
+// foreground window belongs to a process CCaps can't query). Without a foreground
+// window (e.g. at startup) falls back to CCaps's own thread layout.
+pub fn current_layout_hkl() -> Option<usize> {
     unsafe {
-        let hwnd = GetForegroundWindow();
-        if hwnd.is_null() {
-            // Fallback: get layout for current thread if no foreground window
-            return get_current_thread_layout();
+        if GetForegroundWindow().is_null() {
+            return get_current_thread_layout().map(|layout| layout.hkl);
+        }
+        foreground_layout()
+    }
+}
+
+// Reads the layout of the foreground window from the threads that may own its input,
+// best first:
+// - the thread of the focused control: in Windows 11 Notepad and UWP apps it differs
+//   from the top-level window's thread, whose layout goes stale after Win+Space;
+// - the thread of the foreground window itself;
+// - the thread of its default IME window: for console windows both threads above read
+//   as 0, while the IME window belongs to the real conhost input thread.
+unsafe fn foreground_layout() -> Option<usize> {
+    unsafe {
+        let foreground = GetForegroundWindow();
+        if foreground.is_null() {
+            return None;
         }
 
-        let thread_id = GetWindowThreadProcessId(hwnd, ptr::null_mut());
-        let current_layout = GetKeyboardLayout(thread_id);
+        let mut info: GUITHREADINFO = mem::zeroed();
+        info.cbSize = mem::size_of::<GUITHREADINFO>() as u32;
+        let focus_thread = if GetGUIThreadInfo(0, &mut info) != 0 {
+            window_thread(info.hwndFocus)
+        } else {
+            0
+        };
 
-        Some(LayoutInfo::new(current_layout))
+        first_readable_layout(&[
+            &|| thread_layout(focus_thread),
+            &|| thread_layout(window_thread(foreground)),
+            &|| thread_layout(window_thread(ImmGetDefaultIMEWnd(foreground))),
+        ])
     }
+}
+
+// Thread that owns `hwnd`, or 0 if there is no window
+unsafe fn window_thread(hwnd: HWND) -> u32 {
+    unsafe {
+        if hwnd.is_null() {
+            0
+        } else {
+            GetWindowThreadProcessId(hwnd, ptr::null_mut())
+        }
+    }
+}
+
+// Keyboard layout of `thread`, or 0 if unknown. Thread 0 must not reach
+// GetKeyboardLayout: it would return CCaps's own layout instead of "unknown".
+fn thread_layout(thread: u32) -> usize {
+    if thread == 0 {
+        0
+    } else {
+        unsafe { GetKeyboardLayout(thread) as usize }
+    }
+}
+
+// First non-zero layout from `sources`, evaluated lazily in order
+fn first_readable_layout(sources: &[&dyn Fn() -> usize]) -> Option<usize> {
+    sources.iter().map(|source| source()).find(|&hkl| hkl != 0)
 }
 
 pub fn get_current_thread_layout() -> Option<LayoutInfo> {
@@ -296,6 +358,49 @@ mod tests {
             layout_request_target(foreground, HWND_BROADCAST),
             Some(foreground)
         );
+    }
+
+    #[test]
+    fn test_unknown_thread_has_no_layout() {
+        // GetKeyboardLayout(0) would return CCaps's own layout, not "unknown"
+        assert_eq!(thread_layout(0), 0);
+    }
+
+    #[test]
+    fn test_readable_layout_prefers_focus_thread() {
+        // Notepad / UWP: the top-level window's thread may hold a stale layout
+        assert_eq!(
+            first_readable_layout(&[&|| 0x0419_0419, &|| 0x0407_0407, &|| 0x0409_0409]),
+            Some(0x0419_0419)
+        );
+    }
+
+    #[test]
+    fn test_readable_layout_falls_back_to_ime_thread_for_consoles() {
+        // conhost: focus and window threads read as 0, the IME window's thread does not
+        assert_eq!(
+            first_readable_layout(&[&|| 0, &|| 0, &|| 0x0419_0419]),
+            Some(0x0419_0419)
+        );
+    }
+
+    #[test]
+    fn test_unreadable_layout_is_none() {
+        assert_eq!(first_readable_layout(&[&|| 0, &|| 0, &|| 0]), None);
+    }
+
+    #[test]
+    fn test_readable_layout_stops_at_first_hit() {
+        let later_source_called = std::cell::Cell::new(false);
+        let later = || {
+            later_source_called.set(true);
+            0x0409_0409
+        };
+        assert_eq!(
+            first_readable_layout(&[&|| 0x0419_0419, &later]),
+            Some(0x0419_0419)
+        );
+        assert!(!later_source_called.get());
     }
 
     #[test]

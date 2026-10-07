@@ -163,10 +163,11 @@ unsafe fn switch_keyboard_layout() {
         // switches made elsewhere (Win+Space, per-window layouts, a rejected request)
         // don't leave CCaps cycling from a stale position
         let hkls: Vec<usize> = hook_data.selected_layouts.iter().map(|l| l.hkl).collect();
-        let current_index = match layout_manager::get_current_layout() {
-            Some(current) => hkls.iter().position(|&hkl| hkl == current.hkl),
-            None => Some(hook_data.current_layout_index),
-        };
+        let current_index = current_layout_index(
+            &hkls,
+            layout_manager::current_layout_hkl(),
+            hook_data.current_layout_index,
+        );
         hook_data.current_layout_index = next_layout_index(hkls.len(), current_index);
         let next_layout = &hook_data.selected_layouts[hook_data.current_layout_index];
 
@@ -175,6 +176,23 @@ unsafe fn switch_keyboard_layout() {
 
         // Update Scroll Lock indicator
         layout_indicator::update_layout_indicator_with_layout(next_layout.get_hkl());
+    }
+}
+
+// Index of the current layout among the selected ones (`selected` holds their HKLs).
+// `actual` is the layout the user is typing with, None if it can't be read: then CCaps
+// continues from the layout it switched to last (`last_index`). Some(actual) that isn't
+// selected gives None.
+fn current_layout_index(
+    selected: &[usize],
+    actual: Option<usize>,
+    last_index: usize,
+) -> Option<usize> {
+    match actual {
+        Some(hkl) => selected
+            .iter()
+            .position(|&selected_hkl| selected_hkl == hkl),
+        None => Some(last_index),
     }
 }
 
@@ -279,6 +297,33 @@ mod tests {
     fn test_next_layout_starts_over_when_current_is_not_selected() {
         // e.g. the user switched to a layout outside CCaps's set with Win+Space
         assert_eq!(next_layout_index(3, None), 0);
+    }
+
+    const US: usize = 0x0409_0409;
+    const RU: usize = 0x0419_0419;
+    const DE: usize = 0x0407_0407;
+
+    #[test]
+    fn test_current_index_follows_actual_layout() {
+        assert_eq!(current_layout_index(&[US, RU], Some(RU), 0), Some(1));
+    }
+
+    #[test]
+    fn test_current_index_of_unselected_layout_is_none() {
+        assert_eq!(current_layout_index(&[US, RU], Some(DE), 1), None);
+    }
+
+    #[test]
+    fn test_unreadable_layout_continues_from_last_switch() {
+        // Regression: in a conhost window the layout used to read as 0, which matched no
+        // selected layout, so Caps Lock always went to the first one and never left it
+        let last = current_layout_index(&[US, RU], None, 0);
+        assert_eq!(last, Some(0));
+        assert_eq!(next_layout_index(2, last), 1);
+        assert_eq!(
+            next_layout_index(2, current_layout_index(&[US, RU], None, 1)),
+            0
+        );
     }
 
     #[test]
