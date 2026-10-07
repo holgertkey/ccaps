@@ -67,7 +67,7 @@ pub fn request(target: usize) -> Option<u64> {
 
 fn run_worker(receiver: Receiver<SwitchRequest>, main_thread: u32, verbose: bool) {
     let ops = SystemOps {
-        fallback_enabled: false,
+        fallback_enabled: true,
     };
     // Ends when stop() drops the sender
     while let Ok(first) = receiver.recv() {
