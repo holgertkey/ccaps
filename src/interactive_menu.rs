@@ -1,4 +1,4 @@
-use crate::cli::{execute_command, CliCommand};
+use crate::cli::{execute_command, parse_country_codes, quit_removed_hint, CliCommand};
 use crate::layout_manager;
 use std::io::{self, Write};
 
@@ -64,6 +64,11 @@ pub fn show_interactive_menu() -> (i32, Vec<String>) {
                         println!("Goodbye!");
                         return (1, vec![]);
                     }
+                    CliCommand::Removed(ref hint) => {
+                        println!();
+                        println!("{}", hint);
+                        println!();
+                    }
                     CliCommand::Unknown(ref cmd) if cmd.starts_with("Invalid codes:") => {
                         // Don't execute invalid commands, just continue
                         println!();
@@ -109,10 +114,11 @@ fn show_menu() {
     println!("│  run           - Run in foreground mode (all layouts)                      │");
     println!("│  run -de       - Run with English ↔ German switching                       │");
     println!("│  run -de -fr   - Run with German ↔ French switching                        │");
-    println!("│  start         - Start in background (all layouts) and add to auto-startup │");
-    println!("│  start -de     - Start in background (English/German) and auto-startup     │");
-    println!("│  stop          - Stop background process and remove from startup           │");
-    println!("│  quit          - Stop background process only                              │");
+    println!("│  enable        - Save settings, auto-startup, start now (all layouts)      │");
+    println!("│  enable -de    - Same, with English ↔ German switching                     │");
+    println!("│  disable       - Stop, remove from auto-startup and delete settings        │");
+    println!("│  start         - Start in background now (no auto-startup)                 │");
+    println!("│  stop          - Stop background process (settings and auto-startup kept)  │");
     println!("│  status        - Show current status and available language codes          │");
     println!("│  help          - Show detailed help                                        │");
     println!("│  menu          - Show this menu again                                      │");
@@ -133,70 +139,89 @@ fn parse_menu_command(input: &str) -> CliCommand {
         return CliCommand::Unknown(input.to_string());
     }
 
+    // Country codes after run/enable/start, validated against the installed layouts
+    let validated_codes = || -> Result<Vec<String>, CliCommand> {
+        let country_codes = parse_country_codes(&parts[1..]);
+        println!();
+        if country_codes.is_empty() {
+            println!("✓ Using all available layouts");
+            return Ok(country_codes);
+        }
+        match layout_manager::validate_country_codes(
+            &country_codes.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+        ) {
+            Ok(_) => {
+                println!("✓ Validated country codes: {}", country_codes.join(", "));
+                Ok(country_codes)
+            }
+            Err(error) => {
+                println!("✗ Error: {}", error);
+                Err(CliCommand::Unknown(format!("Invalid codes: {}", input)))
+            }
+        }
+    };
+
     match parts[0].to_lowercase().as_str() {
-        "run" => {
-            // Parse country codes after run command
-            let country_codes: Vec<String> = parts[1..]
-                .iter()
-                .filter(|arg| arg.starts_with('-') && arg.len() > 1)
-                .map(|arg| arg[1..].to_string())
-                .collect();
-
-            // Validate country codes if provided
-            if !country_codes.is_empty() {
-                match layout_manager::validate_country_codes(
-                    &country_codes.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
-                ) {
-                    Ok(_) => {
-                        println!();
-                        println!("✓ Validated country codes: {}", country_codes.join(", "));
-                    }
-                    Err(error) => {
-                        println!();
-                        println!("✗ Error: {}", error);
-                        return CliCommand::Unknown(format!("Invalid codes: {}", input));
-                    }
-                }
-            } else {
-                println!();
-                println!("✓ Using all available layouts");
-            }
-
-            CliCommand::Run(country_codes)
-        }
-        "start" => {
-            // Parse country codes after start command
-            let country_codes: Vec<String> = parts[1..]
-                .iter()
-                .filter(|arg| arg.starts_with('-') && arg.len() > 1)
-                .map(|arg| arg[1..].to_string())
-                .collect();
-
-            // Validate country codes if provided
-            if !country_codes.is_empty() {
-                match layout_manager::validate_country_codes(
-                    &country_codes.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
-                ) {
-                    Ok(_) => {
-                        println!("✓ Validated country codes: {}", country_codes.join(", "));
-                    }
-                    Err(error) => {
-                        println!("✗ Error: {}", error);
-                        return CliCommand::Unknown(format!("Invalid codes: {}", input));
-                    }
-                }
-            } else {
-                println!("✓ Using all available layouts");
-            }
-
-            CliCommand::Start(country_codes)
-        }
+        "run" => validated_codes().map_or_else(|e| e, CliCommand::Run),
+        "enable" => validated_codes().map_or_else(|e| e, CliCommand::Enable),
+        "start" => validated_codes().map_or_else(|e| e, CliCommand::Start),
+        "disable" => CliCommand::Disable,
         "stop" => CliCommand::Stop,
-        "quit" => CliCommand::Exit,
+        "quit" => CliCommand::Removed(quit_removed_hint("")),
         "status" => CliCommand::Status,
         "help" => CliCommand::Help,
         "menu" => CliCommand::Unknown("menu".to_string()),
         "exit" | "e" => CliCommand::Unknown("exit".to_string()),
         _ => CliCommand::Unknown(input.to_string()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_menu_commands_without_codes() {
+        assert_eq!(parse_menu_command("run"), CliCommand::Run(vec![]));
+        assert_eq!(parse_menu_command("enable"), CliCommand::Enable(vec![]));
+        assert_eq!(parse_menu_command("start"), CliCommand::Start(vec![]));
+        assert_eq!(parse_menu_command("disable"), CliCommand::Disable);
+        assert_eq!(parse_menu_command("stop"), CliCommand::Stop);
+        assert_eq!(parse_menu_command("status"), CliCommand::Status);
+        assert_eq!(parse_menu_command("help"), CliCommand::Help);
+    }
+
+    #[test]
+    fn test_menu_commands_are_case_insensitive() {
+        assert_eq!(parse_menu_command("STOP"), CliCommand::Stop);
+        assert_eq!(parse_menu_command("Enable"), CliCommand::Enable(vec![]));
+    }
+
+    #[test]
+    fn test_menu_stop_never_disables() {
+        assert_ne!(parse_menu_command("stop"), CliCommand::Disable);
+    }
+
+    #[test]
+    fn test_menu_quit_is_removed_with_hint() {
+        match parse_menu_command("quit") {
+            CliCommand::Removed(hint) => {
+                assert!(hint.contains("'stop'"));
+                assert!(hint.contains("'disable'"));
+            }
+            other => panic!("expected Removed, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_menu_exit_leaves_the_menu() {
+        assert_eq!(
+            parse_menu_command("e"),
+            CliCommand::Unknown("exit".to_string())
+        );
+        assert_eq!(
+            parse_menu_command("exit"),
+            CliCommand::Unknown("exit".to_string())
+        );
     }
 }

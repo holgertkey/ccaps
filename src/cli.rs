@@ -18,71 +18,78 @@ const MUTEX_NAME: &str = "Global\\CCapsLayoutSwitcherMutex";
 const REGISTRY_KEY: &str = "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run";
 const APP_NAME: &str = "CCaps Layout Switcher";
 
+// Commands follow a systemctl-like model: -enable/-disable change the persistent state
+// (config file and auto-startup), -start/-stop only affect the running process.
+#[derive(Debug, PartialEq)]
 pub enum CliCommand {
-    Start(Vec<String>), // Modified to include country codes
-    Stop,
-    Exit,
+    Enable(Vec<String>), // Save config + add to auto-startup + start if not running
+    Disable,             // Stop + remove from auto-startup + delete config
+    Start(Vec<String>),  // Start the background process now; config and auto-startup untouched
+    Stop,                // Stop the background process only
     Status,
-    Run(Vec<String>),        // Modified to include country codes
+    Run(Vec<String>),        // Run in foreground mode
     Menu,                    // Interactive menu (no parameters)
     Background(Vec<String>), // Internal command for background process with country codes
     Help,
     Version,
+    Removed(String), // A removed command; the String is the hint to show
     Unknown(String),
 }
 
+// Hint for the removed '-quit' command (`prefix` is "-" on the command line, "" in the menu)
+pub fn quit_removed_hint(prefix: &str) -> String {
+    format!(
+        "'{p}quit' was removed. Use '{p}stop' to stop CCaps now, or '{p}disable' to also remove it from auto-startup.",
+        p = prefix
+    )
+}
+
 pub fn parse_args() -> CliCommand {
-    let args: Vec<String> = env::args().collect();
+    let args: Vec<String> = env::args().skip(1).collect();
+    parse_command(&args)
+}
 
-    if args.len() < 2 {
-        // No arguments provided - show interactive menu
+// Parses the command line without the program name. No arguments: interactive menu.
+fn parse_command(args: &[String]) -> CliCommand {
+    let Some(command) = args.first() else {
         return CliCommand::Menu;
-    }
+    };
+    let country_codes = || parse_country_codes(&args[1..]);
 
-    match args[1].as_str() {
-        "-start" => {
-            // Parse country codes after -start
-            let country_codes: Vec<String> = args[2..]
-                .iter()
-                .filter(|arg| arg.starts_with('-') && arg.len() > 1)
-                .map(|arg| arg[1..].to_string())
-                .collect();
-            CliCommand::Start(country_codes)
-        }
+    match command.as_str() {
+        "-enable" => CliCommand::Enable(country_codes()),
+        "-disable" => CliCommand::Disable,
+        "-start" => CliCommand::Start(country_codes()),
         "-stop" => CliCommand::Stop,
-        "-quit" => CliCommand::Exit,
+        "-quit" => CliCommand::Removed(quit_removed_hint("-")),
         "-status" => CliCommand::Status,
-        "-run" => {
-            // Parse country codes after -run
-            let country_codes: Vec<String> = args[2..]
-                .iter()
-                .filter(|arg| arg.starts_with('-') && arg.len() > 1)
-                .map(|arg| arg[1..].to_string())
-                .collect();
-            CliCommand::Run(country_codes)
-        }
-        "--background" => {
-            // Parse country codes after --background
-            let country_codes: Vec<String> = args[2..]
-                .iter()
-                .filter(|arg| arg.starts_with('-') && arg.len() > 1)
-                .map(|arg| arg[1..].to_string())
-                .collect();
-            CliCommand::Background(country_codes)
-        }
+        "-run" => CliCommand::Run(country_codes()),
+        "--background" => CliCommand::Background(country_codes()),
         "-help" | "--help" | "-h" | "/?" => CliCommand::Help,
         "-v" | "--version" => CliCommand::Version,
-        _ => CliCommand::Unknown(args[1].clone()),
+        _ => CliCommand::Unknown(command.clone()),
     }
+}
+
+// Country codes from arguments like "-de -fr" (the leading dash is removed). Arguments
+// without a dash and a lone "-" are ignored.
+pub fn parse_country_codes<S: AsRef<str>>(args: &[S]) -> Vec<String> {
+    args.iter()
+        .map(|arg| arg.as_ref())
+        .filter(|arg| arg.starts_with('-') && arg.len() > 1)
+        .map(|arg| arg[1..].to_string())
+        .collect()
 }
 
 pub fn execute_command(command: CliCommand) -> (i32, Vec<String>) {
     match command {
+        CliCommand::Enable(country_codes) => (handle_enable(&country_codes), vec![]),
+        CliCommand::Disable => (handle_disable(), vec![]),
         CliCommand::Start(country_codes) => (handle_start(&country_codes), vec![]),
         CliCommand::Stop => (handle_stop(), vec![]),
-        CliCommand::Exit => (handle_exit(), vec![]),
         CliCommand::Status => (handle_status(), vec![]),
-        CliCommand::Background(country_codes) => (handle_background(&country_codes), country_codes),
+        // The background process doesn't touch auto-startup: only -enable/-disable do
+        CliCommand::Background(country_codes) => (0, country_codes),
         CliCommand::Run(country_codes) => (0, country_codes), // Continue normal execution
         CliCommand::Menu => (0, vec![]),                      // This should not be called directly
         CliCommand::Help => {
@@ -93,34 +100,55 @@ pub fn execute_command(command: CliCommand) -> (i32, Vec<String>) {
             show_version();
             (0, vec![])
         }
+        CliCommand::Removed(hint) => {
+            eprintln!("{}", hint);
+            (1, vec![])
+        }
         CliCommand::Unknown(cmd) => {
             eprintln!("Unknown command: {}", cmd);
-            // show_help();
             (1, vec![])
         }
     }
 }
 
-fn handle_background(country_codes: &[String]) -> i32 {
-    // Load configuration from file if no country codes provided
-    let final_country_codes = if country_codes.is_empty() {
-        let config = config::load_config();
-        config.country_codes
-    } else {
-        country_codes.to_vec()
-    };
+// Status line and recommendation for -status, from whether the background process is
+// running and whether it is in auto-startup
+fn status_recommendation(running: bool, in_startup: bool) -> (&'static str, Option<&'static str>) {
+    match (running, in_startup) {
+        (true, true) => ("Status: All systems operational ✓", None),
+        (true, false) => (
+            "Status: Running, but not in auto-startup",
+            Some("Recommendation: Run 'ccaps -enable' to start automatically at login"),
+        ),
+        (false, true) => (
+            "Status: Auto-startup enabled but not currently running",
+            Some("Recommendation: Run 'ccaps -start' to start it now"),
+        ),
+        (false, false) => (
+            "Status: Not running and auto-startup disabled",
+            Some("Recommendation: Run 'ccaps -enable' to start now and at every login"),
+        ),
+    }
+}
 
-    // When running in the background, we only check autoload
-    // but we don't install it again
-    if !is_in_startup() {
-        // If for some reason the autoload is missing, we add it
-        if let Err(e) = add_to_startup(&final_country_codes) {
-            eprintln!("Warning: Could not ensure startup entry: {}", e);
+// Validates country codes and prints which layouts will be used
+fn check_country_codes(country_codes: &[String]) -> bool {
+    if country_codes.is_empty() {
+        println!("Using all available layouts");
+        return true;
+    }
+    match layout_manager::validate_country_codes(
+        &country_codes.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+    ) {
+        Ok(_) => {
+            println!("Using country codes: {}", country_codes.join(", "));
+            true
+        }
+        Err(error) => {
+            eprintln!("Error: {}", error);
+            false
         }
     }
-
-    // Continue normal execution (do not terminate the program)
-    0
 }
 
 fn handle_status() -> i32 {
@@ -210,50 +238,27 @@ fn handle_status() -> i32 {
     println!("  ccaps -run            # Run in foreground mode (cycle through all layouts)");
     println!("  ccaps -run -de        # Switch between English and German");
     println!("  ccaps -run -de -fr    # Switch between German and French");
-    println!("  ccaps -start          # Start with all layouts and add to auto-startup");
-    println!("  ccaps -start -de      # Start with English/German and add to auto-startup");
+    println!("  ccaps -enable -de     # Run in background now and at every login (English/German)");
+    println!("  ccaps -start          # Run in background now, without auto-startup");
     println!();
 
     // Show recommendations
-    match (is_running, in_startup) {
-        (true, true) => println!("Status: All systems operational ✓"),
-        (true, false) => {
-            println!("Status: Running but not in auto-startup");
-            println!("Recommendation: Run 'ccaps -start' to enable auto-startup");
-        }
-        (false, true) => {
-            println!("Status: Auto-startup enabled but not currently running");
-            println!("Recommendation: Run 'ccaps -start' to start background process");
-        }
-        (false, false) => {
-            println!("Status: Not running and auto-startup disabled");
-            println!("Recommendation: Run 'ccaps -start' to start and enable auto-startup");
-        }
+    let (status, recommendation) = status_recommendation(is_running, in_startup);
+    println!("{}", status);
+    if let Some(recommendation) = recommendation {
+        println!("{}", recommendation);
     }
 
     0
 }
 
-fn handle_start(country_codes: &[String]) -> i32 {
-    println!("Starting CCaps Layout Switcher...");
+// -enable: save the configuration, add to auto-startup, and start the background
+// process unless it is already running
+fn handle_enable(country_codes: &[String]) -> i32 {
+    println!("Enabling CCaps Layout Switcher...");
 
-    // Check if already running
-    if is_already_running() {
-        println!("The program is already running in the background.");
+    if !check_country_codes(country_codes) {
         return 1;
-    }
-
-    // Validate country codes if provided
-    if !country_codes.is_empty() {
-        if let Err(error) = layout_manager::validate_country_codes(
-            &country_codes.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
-        ) {
-            eprintln!("Error: {}", error);
-            return 1;
-        }
-        println!("Using country codes: {}", country_codes.join(", "));
-    } else {
-        println!("Using all available layouts");
     }
 
     // Save configuration
@@ -266,18 +271,19 @@ fn handle_start(country_codes: &[String]) -> i32 {
 
     // Add to startup with country codes
     let already_in_startup = is_in_startup();
-    if already_in_startup {
-        println!("Already in system startup. Updating configuration...");
-    }
-
     if let Err(e) = add_to_startup(country_codes) {
         eprintln!("Warning: Could not add to startup: {}", e);
+    } else if already_in_startup {
+        println!("System startup configuration updated.");
     } else {
-        if already_in_startup {
-            println!("System startup configuration updated.");
-        } else {
-            println!("Added to system startup.");
-        }
+        println!("Added to system startup.");
+    }
+
+    if is_already_running() {
+        println!(
+            "Already running; new settings take effect after 'ccaps -stop' + 'ccaps -start' or next login."
+        );
+        return 0;
     }
 
     // Start in background (completely detached process)
@@ -287,6 +293,42 @@ fn handle_start(country_codes: &[String]) -> i32 {
     }
 
     println!("CCaps Layout Switcher started in background.");
+    0
+}
+
+// -start: start the background process now. Without country codes it uses the saved
+// configuration (or all layouts); codes given here are not saved. Auto-startup is not
+// changed.
+fn handle_start(country_codes: &[String]) -> i32 {
+    println!("Starting CCaps Layout Switcher...");
+
+    // Check if already running
+    if is_already_running() {
+        println!("The program is already running in the background.");
+        return 1;
+    }
+
+    if country_codes.is_empty() {
+        let saved = config::load_config().country_codes;
+        if saved.is_empty() {
+            println!("Using all available layouts");
+        } else {
+            println!("Using saved country codes: {}", saved.join(", "));
+        }
+    } else if !check_country_codes(country_codes) {
+        return 1;
+    }
+
+    // Start in background (completely detached process)
+    if let Err(e) = start_background_process(country_codes) {
+        eprintln!("Failed to start background process: {}", e);
+        return 1;
+    }
+
+    println!("CCaps Layout Switcher started in background.");
+    if !is_in_startup() {
+        println!("It won't start at login; use 'ccaps -enable' for that.");
+    }
     0
 }
 
@@ -308,11 +350,15 @@ fn ask_confirmation_with_reader<R: io::BufRead>(prompt: &str, reader: &mut R) ->
     }
 }
 
-fn handle_stop() -> i32 {
-    println!("Stopping CCaps Layout Switcher...");
+// -disable: stop the background process, remove it from auto-startup and delete the
+// configuration
+fn handle_disable() -> i32 {
+    println!("Disabling CCaps Layout Switcher...");
 
     // Ask for confirmation
-    if !ask_confirmation("Are you sure you want to stop CCaps and remove it from startup?") {
+    if !ask_confirmation(
+        "Are you sure you want to stop CCaps, remove it from startup and delete its settings?",
+    ) {
         println!("Operation cancelled.");
         return 0;
     }
@@ -341,8 +387,9 @@ fn handle_stop() -> i32 {
     0
 }
 
-fn handle_exit() -> i32 {
-    println!("Exiting CCaps Layout Switcher...");
+// -stop: stop the background process only; configuration and auto-startup are kept
+fn handle_stop() -> i32 {
+    println!("Stopping CCaps Layout Switcher...");
 
     // Ask for confirmation
     if !ask_confirmation("Are you sure you want to stop the background process?") {
@@ -368,19 +415,25 @@ fn show_help() {
     println!("Keyboard layout switcher using Caps Lock key");
     println!();
     println!("Usage:");
-    println!("  ccaps              - Show interactive menu");
-    println!("  ccaps -run         - Run in foreground mode (cycle through all layouts)");
-    println!("  ccaps -run -de     - Run with English ↔ German switching");
-    println!("  ccaps -run -de -fr - Run with German ↔ French switching");
-    println!("  ccaps -start       - Start in background with all layouts and add to auto-startup");
+    println!("  ccaps                - Show interactive menu");
+    println!("  ccaps -run           - Run in foreground mode (cycle through all layouts)");
+    println!("  ccaps -run -de       - Run with English ↔ German switching");
+    println!("  ccaps -run -de -fr   - Run with German ↔ French switching");
+    println!();
+    println!("  ccaps -enable        - Save settings, add to auto-startup and start now");
+    println!("  ccaps -enable -de    - Same, with English ↔ German switching");
+    println!("  ccaps -disable       - Stop, remove from auto-startup and delete settings");
+    println!("  ccaps -start         - Start in background now (saved settings, no auto-startup)");
+    println!("  ccaps -start -de     - Start in background now with English ↔ German (not saved)");
     println!(
-        "  ccaps -start -de   - Start in background with German/English and add to auto-startup"
+        "  ccaps -stop          - Stop the background process (settings and auto-startup kept)"
     );
-    println!("  ccaps -stop        - Stop background process and remove from startup");
-    println!("  ccaps -quit        - Stop background process only");
-    println!("  ccaps -status      - Show current status and available language codes");
-    println!("  ccaps -help        - Show this help");
-    println!("  ccaps -v           - Show version information");
+    println!();
+    println!("  ccaps -status        - Show current status and available language codes");
+    println!("  ccaps -help          - Show this help");
+    println!("  ccaps -v             - Show version information");
+    println!();
+    println!("Note: unlike 'systemctl enable', '-enable' also starts CCaps right away.");
     println!();
     println!("Key bindings:");
     println!("  Caps Lock              - Switch keyboard layout");
@@ -388,7 +441,7 @@ fn show_help() {
     println!("  Scroll Lock indicator  - Shows current layout (OFF=English, ON=Non-English)");
     println!();
     println!("Configuration:");
-    println!("  Settings are automatically saved when using -start with country codes");
+    println!("  Settings are saved by -enable and deleted by -disable");
     println!("  Configuration file: %localappdata%\\CCaps\\ccaps-config.json");
     println!("  Use 'ccaps -status' to see all available language codes");
     println!();
@@ -669,6 +722,103 @@ pub fn should_run_in_background() -> bool {
 mod tests {
     use super::*;
     use std::io::Cursor;
+
+    fn parse(args: &[&str]) -> CliCommand {
+        let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
+        parse_command(&args)
+    }
+
+    fn codes(codes: &[&str]) -> Vec<String> {
+        codes.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn test_no_arguments_shows_menu() {
+        assert_eq!(parse(&[]), CliCommand::Menu);
+    }
+
+    #[test]
+    fn test_parse_enable() {
+        assert_eq!(parse(&["-enable"]), CliCommand::Enable(vec![]));
+        assert_eq!(
+            parse(&["-enable", "-de", "-fr"]),
+            CliCommand::Enable(codes(&["de", "fr"]))
+        );
+    }
+
+    #[test]
+    fn test_parse_disable() {
+        assert_eq!(parse(&["-disable"]), CliCommand::Disable);
+    }
+
+    #[test]
+    fn test_parse_start() {
+        assert_eq!(parse(&["-start"]), CliCommand::Start(vec![]));
+        assert_eq!(parse(&["-start", "-de"]), CliCommand::Start(codes(&["de"])));
+    }
+
+    #[test]
+    fn test_stop_never_disables() {
+        // Regression guard: '-stop' used to remove auto-startup and delete the config;
+        // now it must only stop the process
+        assert_eq!(parse(&["-stop"]), CliCommand::Stop);
+        assert_ne!(parse(&["-stop"]), CliCommand::Disable);
+    }
+
+    #[test]
+    fn test_parse_run_and_background() {
+        assert_eq!(parse(&["-run", "-de"]), CliCommand::Run(codes(&["de"])));
+        assert_eq!(
+            parse(&["--background", "-ru"]),
+            CliCommand::Background(codes(&["ru"]))
+        );
+    }
+
+    #[test]
+    fn test_quit_is_removed_with_hint() {
+        match parse(&["-quit"]) {
+            CliCommand::Removed(hint) => {
+                assert!(hint.contains("'-stop'"));
+                assert!(hint.contains("'-disable'"));
+            }
+            other => panic!("expected Removed, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_other_commands() {
+        assert_eq!(parse(&["-status"]), CliCommand::Status);
+        assert_eq!(parse(&["-help"]), CliCommand::Help);
+        assert_eq!(parse(&["/?"]), CliCommand::Help);
+        assert_eq!(parse(&["-v"]), CliCommand::Version);
+        assert_eq!(
+            parse(&["-bogus"]),
+            CliCommand::Unknown("-bogus".to_string())
+        );
+    }
+
+    #[test]
+    fn test_country_codes_ignore_non_dash_args_and_lone_dash() {
+        assert_eq!(
+            parse_country_codes(&["-de", "fr", "-", "-ru"]),
+            codes(&["de", "ru"])
+        );
+        assert!(parse_country_codes::<&str>(&[]).is_empty());
+    }
+
+    #[test]
+    fn test_status_recommendation_all_states() {
+        assert_eq!(status_recommendation(true, true).1, None);
+
+        let (_, running_only) = status_recommendation(true, false);
+        assert!(running_only.unwrap().contains("-enable"));
+
+        let (_, startup_only) = status_recommendation(false, true);
+        assert!(startup_only.unwrap().contains("-start"));
+
+        let (_, neither) = status_recommendation(false, false);
+        assert!(neither.unwrap().contains("-enable"));
+    }
 
     #[test]
     fn test_ask_confirmation_yes() {

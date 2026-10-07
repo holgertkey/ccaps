@@ -39,10 +39,12 @@ This will download, compile, and install the latest version of CCaps. The execut
 # Basic commands
 ccaps              # Show interactive menu
 ccaps -run         # Run in foreground mode (all layouts)
-ccaps -start       # Start in background with all layouts + add to auto-startup
-ccaps -start -de   # Start in background with English/German + add to auto-startup
-ccaps -stop        # Stop background process + remove from startup + delete config
-ccaps -quit        # Stop background process only
+ccaps -enable      # Save settings + add to auto-startup + start now (all layouts)
+ccaps -enable -de  # Same, with English/German
+ccaps -disable     # Stop + remove from auto-startup + delete settings
+ccaps -start       # Start in background now (saved settings), auto-startup untouched
+ccaps -start -de   # Start in background now with English/German (not saved)
+ccaps -stop        # Stop background process only (settings and auto-startup kept)
 ccaps -status      # Show status and available language codes
 ccaps -help        # Show help information
 ccaps -v           # Show version information
@@ -88,10 +90,11 @@ Shows a menu with all available options and current system status.
 **Available commands in interactive mode:**
 - `run` - Run in foreground mode (all layouts)
 - `run -de` - Run with specific layouts (e.g., English ↔ German)
-- `start` - Start in background with all layouts and add to auto-startup
-- `start -de` - Start in background with specific layouts and auto-startup
-- `stop` - Stop background process and remove from startup
-- `quit` - Stop background process only
+- `enable` - Save settings, add to auto-startup and start now (all layouts)
+- `enable -de` - Same, with specific layouts
+- `disable` - Stop, remove from auto-startup and delete settings
+- `start` - Start in background now, without touching auto-startup
+- `stop` - Stop background process only (settings and auto-startup kept)
 - `status` - Show current status and available language codes
 - `help` - Show detailed help
 - `menu` - Show menu again
@@ -107,14 +110,15 @@ ccaps -run -de
 ccaps -run -de -fr -es  # German ↔ French ↔ Spanish
 ```
 
-### 4. Start in Background with English/German and Auto-startup
+### 4. Run in Background with English/German, Now and at Every Login
 ```bash
-ccaps -start -de
+ccaps -enable -de
 ```
 
-### 5. Start in Background with All Layouts and Auto-startup
+### 5. Run in Background Just for Now
 ```bash
-ccaps -start
+ccaps -start       # saved settings (or all layouts)
+ccaps -stop        # stop it again; nothing else changes
 ```
 
 ### 6. Check Available Languages and Current Configuration
@@ -145,15 +149,15 @@ Available keyboard layouts:
 Usage examples:
   ccaps -run            # Run in foreground mode (cycle through all layouts)
   ccaps -run -de        # Switch between English and German
-  ccaps -start          # Start with all layouts and add to auto-startup  
-  ccaps -start -de      # Start with English/German and add to auto-startup
+  ccaps -enable -de     # Run in background now and at every login (English/German)
+  ccaps -start          # Run in background now, without auto-startup
 
 Status: All systems operational ✓
 ```
 
 ## Configuration Persistence
 
-CCaps automatically saves your layout preferences when using `-start` with country codes:
+CCaps saves your layout preferences when you use `-enable`:
 
 - **Configuration file**: `ccaps-config.json` (stored in `%LOCALAPPDATA%\CCaps\`)
 - **Typical location**: `C:\Users\<username>\AppData\Local\CCaps\ccaps-config.json`
@@ -170,9 +174,10 @@ Example configuration file:
 
 ### Configuration Management
 
-- **Automatic saving**: Using `ccaps -start -de` saves English/German preference
-- **Auto-loading**: Background process loads saved preferences on Windows startup
-- **Manual cleanup**: `ccaps -stop` removes configuration file
+- **Saving**: `ccaps -enable -de` saves the English/German preference
+- **Auto-loading**: The background process loads saved preferences at login and on `ccaps -start`
+- **Temporary codes**: `ccaps -start -de` uses English/German this time without saving it
+- **Cleanup**: `ccaps -disable` removes the configuration file; `ccaps -stop` keeps it
 - **Status check**: `ccaps -status` shows current configuration
 
 ## How It Works
@@ -219,19 +224,24 @@ The layout detection works with all Windows keyboard layouts. The program automa
 
 ### Background Process Management with Specific Layouts
 ```bash
-# Start with specific layouts and auto-startup
-ccaps -start -de          # English/German switching
-ccaps -start -de -fr      # German/French switching
-ccaps -start              # All layouts (default)
+# Run now and at every login with specific layouts (saved)
+ccaps -enable -de         # English/German switching
+ccaps -enable -de -fr     # German/French switching
+ccaps -enable             # All layouts (default)
 
-# The configuration is automatically saved and restored
+# Stop for now / start again; settings and auto-startup are kept
+ccaps -stop
+ccaps -start
+
+# Remove CCaps from auto-startup and delete its settings
+ccaps -disable
 ```
 
 ### Interactive Menu with Configuration
 ```bash
 ccaps
 # Choose from menu:
-# start -de     # This saves the preference and starts background process
+# enable -de    # This saves the preference, adds auto-startup and starts in background
 # run -de       # This only runs temporarily without saving
 # e             # Quick exit from interactive menu
 ```
@@ -320,15 +330,14 @@ Solution: Run `ccaps -status` to see all available country codes for your system
 # Check status
 ccaps -status
 
-# Restart and re-enable startup
-ccaps -stop
-ccaps -start -de    # or your preferred layout codes
+# Re-enable startup
+ccaps -enable -de   # or your preferred layout codes
 ```
 
 ### Configuration not loading
 - Check if configuration file exists: `ccaps -status`
-- Restart background process: `ccaps -quit` then `ccaps -start`
-- Manually delete and recreate: `ccaps -stop` then `ccaps -start -de`
+- Restart background process: `ccaps -stop` then `ccaps -start`
+- Delete and recreate: `ccaps -disable` then `ccaps -enable -de`
 
 ### Layout switching not working with specific codes
 - Ensure the specified keyboard layouts are installed in Windows
@@ -339,12 +348,12 @@ ccaps -start -de    # or your preferred layout codes
 
 ```bash
 # Stop the program and remove all traces
-ccaps -stop
+ccaps -disable
 
 # Delete the executable file
 del ccaps.exe
 
-# Configuration file is automatically deleted by 'ccaps -stop'
+# Configuration file is automatically deleted by 'ccaps -disable'
 ```
 
 ## License
