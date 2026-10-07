@@ -4,6 +4,7 @@ mod interactive_menu;
 mod keyboard_hook;
 mod layout_indicator;
 mod layout_manager;
+mod layout_switcher;
 
 use cli::{create_mutex, execute_command, parse_args, should_run_in_background, CliCommand};
 use interactive_menu::show_interactive_menu;
