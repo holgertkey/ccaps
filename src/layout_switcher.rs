@@ -9,13 +9,14 @@
 // switch means waiting. The hook only sends a request; when a switch is done, the worker
 // posts WM_SWITCH_DONE to the main thread with the layout it read afterwards.
 
+use crate::console_log;
 use crate::keyboard_hook::CCAPS_EXTRA_INFO;
 use crate::layout_manager::{self, LayoutInfo};
 use std::mem;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Mutex;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use winapi::shared::minwindef::{HKL, LPARAM, WPARAM};
 use winapi::um::winuser::{
     GetAsyncKeyState, GetForegroundWindow, PostThreadMessageW, SendInput, INPUT, INPUT_KEYBOARD,
@@ -36,14 +37,14 @@ struct SwitchRequest {
 static LATEST_GENERATION: AtomicU64 = AtomicU64::new(0);
 static REQUESTS: Mutex<Option<Sender<SwitchRequest>>> = Mutex::new(None);
 
-// Starts the worker thread. Results go to `main_thread` as WM_SWITCH_DONE; `verbose`
-// prints every outcome (foreground mode).
-pub fn start(main_thread: u32, verbose: bool) {
+// Starts the worker thread. Results go to `main_thread` as WM_SWITCH_DONE; with console
+// diagnostics enabled (foreground mode) every switch is also printed.
+pub fn start(main_thread: u32) {
     let (sender, receiver) = mpsc::channel();
     if let Ok(mut requests) = REQUESTS.lock() {
         *requests = Some(sender);
     }
-    std::thread::spawn(move || run_worker(receiver, main_thread, verbose));
+    std::thread::spawn(move || run_worker(receiver, main_thread));
 }
 
 // Stops the worker thread once it finishes the current switch
@@ -65,35 +66,42 @@ pub fn request(target: usize) -> Option<u64> {
     Some(generation)
 }
 
-fn run_worker(receiver: Receiver<SwitchRequest>, main_thread: u32, verbose: bool) {
+fn run_worker(receiver: Receiver<SwitchRequest>, main_thread: u32) {
     let ops = SystemOps {
         fallback_enabled: true,
     };
+    // Requests dropped for a newer one since the last reported switch (diagnostics)
+    let mut skipped = 0;
     // Ends when stop() drops the sender
     while let Ok(first) = receiver.recv() {
         // Rapid presses: only the latest request matters
-        let request = latest_request(first, &receiver);
+        let (request, dropped) = latest_request(first, &receiver);
+        skipped += dropped;
         let generation = request.generation;
         let superseded = || LATEST_GENERATION.load(Ordering::SeqCst) != generation;
 
-        let outcome = perform_switch(&ops, request.target, &superseded);
-        if outcome == SwitchOutcome::Superseded {
+        let started = Instant::now();
+        let from = ops.current_layout();
+        let app = console_log::enabled().then(layout_manager::foreground_app);
+
+        let report = perform_switch(&ops, request.target, &superseded);
+        if report.outcome == SwitchOutcome::Superseded {
             // The newer request is already queued and will report its own result
+            skipped += 1;
             continue;
         }
         let layout = ops.current_layout().unwrap_or(0);
-        if verbose {
-            println!(
-                "Switch to {}: {:?} (layout now {})",
-                layout_code(request.target),
-                outcome,
-                if layout == 0 {
-                    "unknown".to_string()
-                } else {
-                    layout_code(layout)
-                }
-            );
+        if let Some(app) = app {
+            console_log::log(&describe_switch(
+                &report,
+                &from.map_or_else(|| "?".to_string(), layout_code),
+                &layout_code(request.target),
+                started.elapsed().as_millis(),
+                &app,
+                skipped,
+            ));
         }
+        skipped = 0;
         unsafe {
             PostThreadMessageW(
                 main_thread,
@@ -105,12 +113,18 @@ fn run_worker(receiver: Receiver<SwitchRequest>, main_thread: u32, verbose: bool
     }
 }
 
-// The last of `first` and the requests already waiting in the channel
-fn latest_request(first: SwitchRequest, receiver: &Receiver<SwitchRequest>) -> SwitchRequest {
-    receiver.try_iter().last().unwrap_or(first)
+// The last of `first` and the requests already waiting in the channel, and how many
+// older requests were dropped
+fn latest_request(
+    first: SwitchRequest,
+    receiver: &Receiver<SwitchRequest>,
+) -> (SwitchRequest, usize) {
+    receiver
+        .try_iter()
+        .fold((first, 0), |(_, dropped), newer| (newer, dropped + 1))
 }
 
-fn layout_code(hkl: usize) -> String {
+pub fn layout_code(hkl: usize) -> String {
     LayoutInfo::new(hkl as HKL).short_code
 }
 
@@ -229,6 +243,47 @@ impl SwitchOps for SystemOps {
     }
 }
 
+// What happened during a switch, for the outcome and the diagnostics in foreground mode
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SwitchReport {
+    pub outcome: SwitchOutcome,
+    // Why the switch didn't go the normal way; None when there is nothing to explain
+    pub reason: Option<&'static str>,
+    // Win+Space presses made
+    pub presses: usize,
+    // The window applied the request, but only after the verification timeout
+    pub late: bool,
+}
+
+impl SwitchReport {
+    fn new(outcome: SwitchOutcome, reason: Option<&'static str>, presses: usize) -> Self {
+        SwitchReport {
+            outcome,
+            reason,
+            presses,
+            late: false,
+        }
+    }
+}
+
+// Lets tests compare a report with the expected outcome directly
+impl PartialEq<SwitchOutcome> for SwitchReport {
+    fn eq(&self, outcome: &SwitchOutcome) -> bool {
+        self.outcome == *outcome
+    }
+}
+
+pub const REASON_REJECTED: &str = "request rejected (elevated window?)";
+pub const REASON_UNREADABLE: &str = "layout can't be read";
+pub const REASON_SUPERSEDED: &str = "a newer Caps Lock press";
+pub const REASON_MODIFIER: &str = "a modifier key is held, no Win+Space";
+pub const REASON_NOT_INSTALLED: &str = "target layout is not installed";
+pub const REASON_NOT_RESPONDING: &str = "window not responding, no Win+Space";
+pub const REASON_FULL_CYCLE: &str = "not reached after a full Win+Space cycle";
+pub const REASON_FOCUS_MOVED: &str = "another window got focus";
+pub const REASON_PRESS_FAILED: &str = "Win+Space could not be sent";
+pub const REASON_PRESS_NO_EFFECT: &str = "Win+Space had no effect";
+
 // Switches the foreground window to `target`: posts the request, verifies it, and if the
 // window ignored it, presses Win+Space until the target is reached. `superseded` tells
 // whether a newer request is waiting.
@@ -236,28 +291,34 @@ pub fn perform_switch(
     ops: &impl SwitchOps,
     target: usize,
     superseded: &dyn Fn() -> bool,
-) -> SwitchOutcome {
+) -> SwitchReport {
+    use SwitchOutcome::*;
+    let done = |outcome, reason| SwitchReport::new(outcome, Some(reason), 0);
+
     let window = ops.foreground();
     if !ops.post_request(target) {
-        return SwitchOutcome::Failed;
+        return done(Failed, REASON_REJECTED);
     }
 
     let Some(current) = poll_layout(ops, VERIFY_TIMEOUT_MS, |layout| layout == target) else {
-        return SwitchOutcome::Unverified;
+        return done(Unverified, REASON_UNREADABLE);
     };
     if current == target {
-        return SwitchOutcome::Switched;
+        return SwitchReport::new(Switched, None, 0);
     }
 
     // The window ignored the request (or hasn't applied it yet)
     if superseded() {
-        return SwitchOutcome::Superseded;
+        return done(Superseded, REASON_SUPERSEDED);
     }
-    if ops.modifiers_held() || !ops.is_installed(target) {
-        return SwitchOutcome::Failed;
+    if ops.modifiers_held() {
+        return done(Failed, REASON_MODIFIER);
+    }
+    if !ops.is_installed(target) {
+        return done(Failed, REASON_NOT_INSTALLED);
     }
     if !ops.target_responsive() {
-        return SwitchOutcome::Unverified;
+        return done(Unverified, REASON_NOT_RESPONDING);
     }
 
     // Win+Space cycles through every installed layout, in an order CCaps can't know in
@@ -266,32 +327,85 @@ pub fn perform_switch(
     let max_presses = ops.installed_layout_count();
     let mut presses = 0;
     loop {
+        let stop = |outcome, reason| SwitchReport::new(outcome, Some(reason), presses);
         let Some(current) = ops.current_layout() else {
-            return SwitchOutcome::Unverified;
+            return stop(Unverified, REASON_UNREADABLE);
         };
         match fallback_step(current, target, presses, max_presses) {
-            FallbackStep::Done if presses == 0 => return SwitchOutcome::Switched,
-            FallbackStep::Done => return SwitchOutcome::SwitchedByFallback,
-            FallbackStep::GiveUp => return SwitchOutcome::Failed,
+            FallbackStep::Done if presses == 0 => {
+                return SwitchReport {
+                    late: true,
+                    ..SwitchReport::new(Switched, None, 0)
+                }
+            }
+            FallbackStep::Done => return SwitchReport::new(SwitchedByFallback, None, presses),
+            FallbackStep::GiveUp => return stop(Failed, REASON_FULL_CYCLE),
             FallbackStep::PressAgain => {}
         }
         if superseded() {
-            return SwitchOutcome::Superseded;
+            return stop(Superseded, REASON_SUPERSEDED);
         }
-        if ops.foreground() != window || ops.modifiers_held() {
-            return SwitchOutcome::Failed;
+        if ops.foreground() != window {
+            return stop(Failed, REASON_FOCUS_MOVED);
+        }
+        if ops.modifiers_held() {
+            return stop(Failed, REASON_MODIFIER);
         }
         if !ops.press_win_space() {
-            return SwitchOutcome::Failed;
+            return stop(Failed, REASON_PRESS_FAILED);
         }
         presses += 1;
         // No change after a press: it was blocked or is still on its way. Pressing again
         // could overshoot the target once it lands, so stop here.
         match poll_layout(ops, PRESS_TIMEOUT_MS, |layout| layout != current) {
             Some(layout) if layout != current => {}
-            _ => return SwitchOutcome::Unverified,
+            _ => return SwitchReport::new(Unverified, Some(REASON_PRESS_NO_EFFECT), presses),
         }
     }
+}
+
+// One diagnostics line for a finished switch, e.g.
+// "us → ru  SwitchedByFallback: 2× Win+Space, 231 ms · Code.exe (Chrome_WidgetWin_1)"
+pub fn describe_switch(
+    report: &SwitchReport,
+    from: &str,
+    to: &str,
+    elapsed_ms: u128,
+    app: &str,
+    superseded: usize,
+) -> String {
+    let mut details = Vec::new();
+    if report.late {
+        details.push(format!(
+            "applied after the {} ms check, no Win+Space",
+            VERIFY_TIMEOUT_MS
+        ));
+    }
+    if report.presses > 0 {
+        details.push(format!("{}× Win+Space", report.presses));
+    }
+    if let Some(reason) = report.reason {
+        details.push(reason.to_string());
+    }
+    details.push(format!("{} ms", elapsed_ms));
+
+    let outcome = if report.late {
+        "Switched late".to_string()
+    } else {
+        format!("{:?}", report.outcome)
+    };
+    let mut line = format!(
+        "{} → {}  {}: {} · {}",
+        from,
+        to,
+        outcome,
+        details.join(", "),
+        app
+    );
+    if superseded > 0 {
+        line.push_str(&format!(" (+{} earlier press(es) skipped)", superseded));
+    }
+    line
 }
 
 // Reads the layout every POLL_INTERVAL_MS until `done` accepts it or `timeout_ms`
@@ -699,9 +813,10 @@ mod tests {
             target: 1,
             generation: 1,
         };
-        let latest = latest_request(first, &receiver);
+        let (latest, dropped) = latest_request(first, &receiver);
         assert_eq!(latest.generation, 4);
         assert_eq!(latest.target, 4);
+        assert_eq!(dropped, 3);
         assert!(receiver.try_recv().is_err(), "older requests are dropped");
     }
 
@@ -712,7 +827,125 @@ mod tests {
             target: RU,
             generation: 7,
         };
-        assert_eq!(latest_request(first, &receiver).generation, 7);
+        let (latest, dropped) = latest_request(first, &receiver);
+        assert_eq!(latest.generation, 7);
+        assert_eq!(dropped, 0);
+    }
+
+    #[test]
+    fn test_report_explains_why_fallback_was_skipped() {
+        let window = FakeWindow {
+            modifiers: true,
+            ..FakeWindow::deaf(US)
+        };
+        let report = perform_switch(&window, RU, &never);
+        assert_eq!(report.reason, Some(REASON_MODIFIER));
+        assert_eq!(report.presses, 0);
+
+        let busy = FakeWindow {
+            busy: true,
+            responsive: false,
+            ..FakeWindow::new(US)
+        };
+        assert_eq!(
+            perform_switch(&busy, RU, &never).reason,
+            Some(REASON_NOT_RESPONDING)
+        );
+    }
+
+    #[test]
+    fn test_report_counts_presses() {
+        let report = perform_switch(&FakeWindow::deaf(US), RU, &never);
+        assert_eq!(report.outcome, SwitchOutcome::SwitchedByFallback);
+        assert_eq!(report.presses, 3);
+        assert_eq!(report.reason, None);
+        assert!(!report.late);
+    }
+
+    #[test]
+    fn test_report_marks_late_request() {
+        let window = FakeWindow {
+            busy: true,
+            ..FakeWindow::new(US)
+        };
+        let report = perform_switch(&window, RU, &never);
+        assert_eq!(report.outcome, SwitchOutcome::Switched);
+        assert!(report.late);
+
+        let normal = perform_switch(&FakeWindow::new(US), RU, &never);
+        assert!(!normal.late);
+    }
+
+    #[test]
+    fn test_report_tells_focus_moved_apart_from_modifiers() {
+        let window = FakeWindow {
+            switch_window_after: Some(1),
+            ..FakeWindow::deaf(US)
+        };
+        assert_eq!(
+            perform_switch(&window, RU, &never).reason,
+            Some(REASON_FOCUS_MOVED)
+        );
+    }
+
+    #[test]
+    fn test_describe_normal_switch() {
+        let report = perform_switch(&FakeWindow::new(US), RU, &never);
+        assert_eq!(
+            describe_switch(
+                &report,
+                "us",
+                "ru",
+                6,
+                "firefox.exe (MozillaWindowClass)",
+                0
+            ),
+            "us → ru  Switched: 6 ms · firefox.exe (MozillaWindowClass)"
+        );
+    }
+
+    #[test]
+    fn test_describe_fallback_switch() {
+        let report = perform_switch(&FakeWindow::deaf(US), RU, &never);
+        assert_eq!(
+            describe_switch(&report, "us", "ru", 231, "Code.exe (Chrome_WidgetWin_1)", 0),
+            "us → ru  SwitchedByFallback: 3× Win+Space, 231 ms · Code.exe (Chrome_WidgetWin_1)"
+        );
+    }
+
+    #[test]
+    fn test_describe_late_and_failed_switches() {
+        let late = perform_switch(
+            &FakeWindow {
+                busy: true,
+                ..FakeWindow::new(US)
+            },
+            RU,
+            &never,
+        );
+        assert_eq!(
+            describe_switch(&late, "us", "ru", 180, "idea64.exe (SunAwtFrame)", 0),
+            concat!(
+                "us → ru  Switched late: applied after the 150 ms check, no Win+Space, 180 ms",
+                " · idea64.exe (SunAwtFrame)"
+            )
+        );
+
+        let failed = perform_switch(
+            &FakeWindow {
+                modifiers: true,
+                ..FakeWindow::deaf(US)
+            },
+            RU,
+            &never,
+        );
+        assert_eq!(
+            describe_switch(&failed, "us", "ru", 150, "app.exe (Cls)", 2),
+            concat!(
+                "us → ru  Failed: a modifier key is held, no Win+Space, 150 ms · app.exe (Cls)",
+                " (+2 earlier press(es) skipped)"
+            )
+        );
     }
 
     #[test]

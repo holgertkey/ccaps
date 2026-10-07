@@ -1,5 +1,7 @@
+use crate::console_log;
 use crate::keyboard_hook::CCAPS_EXTRA_INFO;
 use crate::layout_manager;
+use crate::layout_switcher;
 use std::mem;
 use std::ptr;
 use std::sync::atomic::{AtomicU8, Ordering};
@@ -183,6 +185,16 @@ unsafe extern "system" fn sync_timer_proc(_hwnd: HWND, _msg: UINT, _id: UINT_PTR
         let wanted_on = current_layout_is_english().map(|is_english| !is_english);
         if let Some(enabled) = sync_action(last_applied, wanted_on, in_grace) {
             apply_indicator(enabled);
+            if console_log::enabled() {
+                let layout = layout_manager::current_layout_hkl()
+                    .map_or_else(|| "?".to_string(), layout_switcher::layout_code);
+                console_log::log(&format!(
+                    "Layout {} in {}, not switched by CCaps → Scroll Lock {}",
+                    layout,
+                    layout_manager::foreground_app(),
+                    if enabled { "ON" } else { "OFF" }
+                ));
+            }
         }
     }
 }

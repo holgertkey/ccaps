@@ -1,7 +1,11 @@
 use std::mem;
 use std::ptr;
-use winapi::shared::minwindef::{HKL, LPARAM};
+use winapi::shared::minwindef::{FALSE, HKL, LPARAM};
 use winapi::shared::windef::HWND;
+use winapi::um::handleapi::CloseHandle;
+use winapi::um::processthreadsapi::OpenProcess;
+use winapi::um::winbase::QueryFullProcessImageNameW;
+use winapi::um::winnt::PROCESS_QUERY_LIMITED_INFORMATION;
 use winapi::um::winuser::*;
 
 #[derive(Debug, Clone)]
@@ -207,6 +211,49 @@ pub fn foreground_responsive(timeout_ms: u32) -> bool {
     }
 }
 
+// Foreground application for diagnostics: "exe (window class)", e.g.
+// "Code.exe (Chrome_WidgetWin_1)"
+pub fn foreground_app() -> String {
+    unsafe {
+        let foreground = GetForegroundWindow();
+        if foreground.is_null() {
+            return "no foreground window".to_string();
+        }
+
+        let mut class = [0u16; 128];
+        let class_len = GetClassNameW(foreground, class.as_mut_ptr(), class.len() as i32);
+        let class = String::from_utf16_lossy(&class[..class_len.max(0) as usize]);
+
+        let mut pid = 0;
+        GetWindowThreadProcessId(foreground, &mut pid);
+        format!("{} ({})", process_exe_name(pid), class)
+    }
+}
+
+// File name of the executable of process `pid`, "?" if it can't be read (e.g. a
+// protected process)
+unsafe fn process_exe_name(pid: u32) -> String {
+    unsafe {
+        let process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+        if process.is_null() {
+            return "?".to_string();
+        }
+        let mut path = [0u16; 512];
+        let mut len = path.len() as u32;
+        let ok = QueryFullProcessImageNameW(process, 0, path.as_mut_ptr(), &mut len);
+        CloseHandle(process);
+        if ok == 0 {
+            return "?".to_string();
+        }
+        exe_file_name(&String::from_utf16_lossy(&path[..len as usize])).to_string()
+    }
+}
+
+// "C:\Program Files\App\app.exe" -> "app.exe"
+fn exe_file_name(path: &str) -> &str {
+    path.rsplit('\\').next().unwrap_or(path)
+}
+
 // Installed layouts (HKLs), in the system's order
 pub fn installed_layouts() -> Vec<usize> {
     unsafe {
@@ -402,6 +449,15 @@ mod tests {
             layout_request_target(foreground, HWND_BROADCAST),
             Some(foreground)
         );
+    }
+
+    #[test]
+    fn test_exe_file_name_from_full_path() {
+        assert_eq!(
+            exe_file_name(r"C:\Program Files\Microsoft VS Code\Code.exe"),
+            "Code.exe"
+        );
+        assert_eq!(exe_file_name("notepad.exe"), "notepad.exe");
     }
 
     #[test]

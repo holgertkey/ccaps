@@ -303,6 +303,28 @@ The executable will be created at `target/release/ccaps.exe`.
 - **Mutex**: Global mutex prevents multiple instances
 - **Layout Detection**: Language ID extraction from HKL handles
 
+### Diagnostics in Foreground Mode
+
+`ccaps -run` prints a line for every Caps Lock press, which helps to find applications where switching doesn't work as expected:
+
+```
+[10:42:13.517] us → ru  Switched: 6 ms · firefox.exe (MozillaWindowClass)
+[10:42:15.004] ru → us  SwitchedByFallback: 2× Win+Space, 231 ms · Code.exe (Chrome_WidgetWin_1)
+[10:42:16.100] us → ru  Switched late: applied after the 150 ms check, no Win+Space, 180 ms · idea64.exe (SunAwtFrame)
+[10:42:17.250] us → ru  Failed: a modifier key is held, no Win+Space, 151 ms · app.exe (AppWindow) (+2 earlier press(es) skipped)
+[10:43:01.002] Layout ru in Telegram.exe (Qt51517QWindowIcon), not switched by CCaps → Scroll Lock ON
+```
+
+Each line shows the time, the layouts, the outcome with its reason, how long the switch took, and the application (executable and window class):
+
+- **Switched**: the window applied the layout request
+- **Switched late**: the window applied it after the 150 ms check, so no Win+Space was needed (the application was busy)
+- **SwitchedByFallback**: the window ignored the request; the layout was reached with Win+Space
+- **Unverified**: CCaps can't tell whether the layout changed (e.g. the window isn't responding)
+- **Failed**: the layout was not changed; the reason says why
+- **earlier press(es) skipped**: rapid presses were merged, only the last one was carried out
+- **not switched by CCaps**: the layout changed in another way (Win+Space, the mouse, another window got focus) and the Scroll Lock indicator followed it
+
 ## Known Limitations
 
 - **Windows running as administrator**: when an elevated window (e.g. `cmd` or `regedit` started "as administrator") has focus, Windows doesn't pass keyboard input to CCaps, which runs with normal rights. In such windows Caps Lock works as a regular Caps Lock and doesn't switch the layout. Switch the layout with Win+Space there.

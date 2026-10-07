@@ -1,5 +1,6 @@
 mod cli;
 mod config;
+mod console_log;
 mod interactive_menu;
 mod keyboard_hook;
 mod layout_indicator;
@@ -128,6 +129,9 @@ fn run_main_loop(country_codes: Vec<String>) {
             detach_from_console();
         }
     } else {
+        // Print a line for every switch and for indicator changes
+        console_log::enable();
+
         // Show startup message in foreground mode
         println!();
         println!("═══════════════════════════════════════════════════");
@@ -190,6 +194,7 @@ fn run_main_loop(country_codes: Vec<String>) {
                     }
 
                     println!();
+                    console_log::print_legend();
                     println!("Press Ctrl+C to exit");
                     println!();
                 }
@@ -217,7 +222,7 @@ fn run_main_loop(country_codes: Vec<String>) {
         }
 
         // Switching runs on a worker thread that reports back to this one
-        layout_switcher::start(GetCurrentThreadId(), !is_background);
+        layout_switcher::start(GetCurrentThreadId());
 
         // Create hidden window for message handling
         create_message_window();

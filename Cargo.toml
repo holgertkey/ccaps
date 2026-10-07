@@ -36,7 +36,9 @@ winapi = { version = "0.3", features = [
     "winnt",
     "winbase",
     "shellapi",
-    "fileapi"
+    "fileapi",
+    "sysinfoapi",
+    "minwinbase"
 ] }
 ctrlc = "3.4"
 serde = { version = "1.0", features = ["derive"] }
