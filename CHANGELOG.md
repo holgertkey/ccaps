@@ -9,7 +9,7 @@
   - `-stop` (was `-quit`): stop the background process only; **no longer deletes anything**
   - `-quit` was removed and prints a hint; the interactive menu got the same commands
 - 🐛 The background process no longer adds itself to auto-startup when the entry is missing (only `-enable` does)
-- 🐛 `-start`/`-enable` wait until the background process is ready (up to 3 s) instead of reporting success at once: `ccaps -start` followed right away by `ccaps -stop` no longer leaves the process running, and a background process that exits right away (e.g. the saved settings name a layout that was removed) is reported with its exit code
+- 🐛 `-start`/`-enable` wait until the background process is ready (up to 3 s) instead of reporting success at once: `ccaps -start` followed right away by `ccaps -stop` no longer leaves the process running, and a background process that exits right away (e.g. the saved settings name a layout that was removed) is reported with its exit code. Without country codes, `-start` also checks the saved codes first and names the unknown ones
 - 🐛 The interactive menu no longer prints "Using all available layouts" for `start`/`enable` without codes (`start` uses the saved settings); each command reports the layouts it uses
 - 🐛 `-start`/`-enable` no longer hang scripts that capture their output: the background process is created without inheriting the caller's handles (it used to keep the output pipe or redirected file open), and runs in the executable's folder instead of keeping the caller's current folder open
 - ✅ Added unit tests for command parsing, country codes, `-status` recommendations and menu commands

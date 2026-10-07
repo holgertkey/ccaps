@@ -138,6 +138,24 @@ fn status_recommendation(running: bool, in_startup: bool) -> (&'static str, Opti
     }
 }
 
+// Why the saved country codes can't be used (e.g. a layout was removed from Windows
+// after '-enable'), or None if they are fine. Checked before starting the background
+// process, which would otherwise exit right away.
+fn saved_codes_problem(saved: &[String]) -> Option<String> {
+    if saved.is_empty() {
+        return None;
+    }
+    let codes: Vec<&str> = saved.iter().map(|s| s.as_str()).collect();
+    layout_manager::validate_country_codes(&codes)
+        .err()
+        .map(|error| {
+            format!(
+                "Error: the saved settings can't be used. {}\nSave new ones with 'ccaps -enable -xx', or start with 'ccaps -start -xx'.",
+                error
+            )
+        })
+}
+
 // Validates country codes and prints which layouts will be used
 fn check_country_codes(country_codes: &[String]) -> bool {
     if country_codes.is_empty() {
@@ -311,6 +329,10 @@ fn handle_start(country_codes: &[String]) -> i32 {
 
     if country_codes.is_empty() {
         let saved = config::load_config().country_codes;
+        if let Some(problem) = saved_codes_problem(&saved) {
+            eprintln!("{}", problem);
+            return 1;
+        }
         if saved.is_empty() {
             println!("Using all available layouts");
         } else {
@@ -923,6 +945,20 @@ mod tests {
 
         let (_, neither) = status_recommendation(false, false);
         assert!(neither.unwrap().contains("-enable"));
+    }
+
+    #[test]
+    fn test_no_saved_codes_is_fine() {
+        // No saved settings: -start uses all layouts
+        assert_eq!(saved_codes_problem(&[]), None);
+    }
+
+    #[test]
+    fn test_unknown_saved_code_is_reported_before_start() {
+        // 'zz' can't be a layout code: unknown languages get hexadecimal codes
+        let problem = saved_codes_problem(&codes(&["zz"])).expect("zz must be rejected");
+        assert!(problem.contains("zz"));
+        assert!(problem.contains("-enable"));
     }
 
     #[test]
