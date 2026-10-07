@@ -60,20 +60,19 @@ extern "system" {
     fn ImmGetDefaultIMEWnd(hwnd: HWND) -> HWND;
 }
 
+// Layout to show at startup and in status output. Without a foreground window (e.g.
+// right after login) falls back to CCaps's own thread layout, which is the default
+// input language then. Not for later decisions: that thread's layout never changes.
 pub fn get_current_layout() -> Option<LayoutInfo> {
-    current_layout_hkl().map(|hkl| LayoutInfo::new(hkl as HKL))
+    current_layout_hkl()
+        .map(|hkl| LayoutInfo::new(hkl as HKL))
+        .or_else(get_current_thread_layout)
 }
 
-// Layout the user is typing with right now, or None if it cannot be read (e.g. the
-// foreground window belongs to a process CCaps can't query). Without a foreground
-// window (e.g. at startup) falls back to CCaps's own thread layout.
+// Layout the user is typing with right now, or None if it cannot be read: no foreground
+// window, or a window whose input threads CCaps can't query
 pub fn current_layout_hkl() -> Option<usize> {
-    unsafe {
-        if GetForegroundWindow().is_null() {
-            return get_current_thread_layout().map(|layout| layout.hkl);
-        }
-        foreground_layout()
-    }
+    unsafe { foreground_layout() }
 }
 
 // Reads the layout of the foreground window from the threads that may own its input,
@@ -163,27 +162,69 @@ pub fn get_english_layout() -> Option<LayoutInfo> {
     all_layouts.into_iter().find(|l| l.is_english)
 }
 
-pub fn switch_to_layout(layout: &LayoutInfo) {
+// Asks the foreground window to switch to `hkl`. Returns false if there is no window to
+// ask or the request was rejected: PostMessageW fails with ERROR_ACCESS_DENIED for
+// elevated windows. True doesn't mean the window applied it: some windows ignore the
+// request, so the result must be verified by reading the layout.
+//
+// CCaps doesn't call ActivateKeyboardLayout: it only changes CCaps's own thread layout.
+pub fn post_layout_request(hkl: usize) -> bool {
     unsafe {
-        let hwnd = GetForegroundWindow();
-        if hwnd.is_null() {
-            return;
-        }
-
-        let hkl = layout.get_hkl();
-
-        // Activate new layout
-        ActivateKeyboardLayout(hkl, 0);
-
         // Ask the focused window of the foreground thread to change its layout. This used
         // to be posted to HWND_BROADCAST, which also reached hidden top-level windows of
         // other threads (e.g. an OpenGL driver's helper windows) and could deadlock such
         // processes when two of their threads handled the layout change at the same time.
         // Posting to the top-level window alone is not enough either: dialogs such as the
         // Explorer "Save As" dialog ignore the request unless it reaches the focused control.
-        if let Some(target) = layout_request_target(hwnd, focused_window(hwnd)) {
-            PostMessageW(target, WM_INPUTLANGCHANGEREQUEST, 0, hkl as LPARAM);
+        match foreground_request_target() {
+            Some(target) => PostMessageW(target, WM_INPUTLANGCHANGEREQUEST, 0, hkl as LPARAM) != 0,
+            None => false,
         }
+    }
+}
+
+// Whether the foreground window processes messages within `timeout_ms`. A busy window
+// keeps a posted layout request in its queue and applies it later.
+pub fn foreground_responsive(timeout_ms: u32) -> bool {
+    unsafe {
+        let foreground = GetForegroundWindow();
+        if foreground.is_null() || IsHungAppWindow(foreground) != 0 {
+            return false;
+        }
+        let Some(target) = foreground_request_target() else {
+            return false;
+        };
+        let mut result = 0;
+        SendMessageTimeoutW(
+            target,
+            WM_NULL,
+            0,
+            0,
+            SMTO_ABORTIFHUNG | SMTO_BLOCK,
+            timeout_ms,
+            &mut result,
+        ) != 0
+    }
+}
+
+// Installed layouts (HKLs), in the system's order
+pub fn installed_layouts() -> Vec<usize> {
+    unsafe {
+        let mut layouts: [HKL; 32] = mem::zeroed();
+        let count = GetKeyboardLayoutList(layouts.len() as i32, layouts.as_mut_ptr());
+        layouts
+            .iter()
+            .take(count.max(0) as usize)
+            .map(|&hkl| hkl as usize)
+            .collect()
+    }
+}
+
+// Window that should receive WM_INPUTLANGCHANGEREQUEST for the foreground window
+unsafe fn foreground_request_target() -> Option<HWND> {
+    unsafe {
+        let foreground = GetForegroundWindow();
+        layout_request_target(foreground, focused_window(foreground))
     }
 }
 
@@ -191,6 +232,9 @@ pub fn switch_to_layout(layout: &LayoutInfo) {
 // or null if it cannot be determined.
 unsafe fn focused_window(foreground: HWND) -> HWND {
     unsafe {
+        if foreground.is_null() {
+            return ptr::null_mut();
+        }
         let thread_id = GetWindowThreadProcessId(foreground, ptr::null_mut());
         if thread_id == 0 {
             return ptr::null_mut();

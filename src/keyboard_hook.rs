@@ -152,7 +152,7 @@ unsafe fn switch_keyboard_layout() {
 
         if hook_data.selected_layouts.len() == 1 {
             // Only one layout available, just activate it
-            layout_manager::switch_to_layout(&hook_data.selected_layouts[0]);
+            layout_manager::post_layout_request(hook_data.selected_layouts[0].hkl);
             layout_indicator::update_layout_indicator_with_layout(
                 hook_data.selected_layouts[0].get_hkl(),
             );
@@ -172,7 +172,7 @@ unsafe fn switch_keyboard_layout() {
         let next_layout = &hook_data.selected_layouts[hook_data.current_layout_index];
 
         // Switch to the new layout
-        layout_manager::switch_to_layout(next_layout);
+        layout_manager::post_layout_request(next_layout.hkl);
 
         // Update Scroll Lock indicator
         layout_indicator::update_layout_indicator_with_layout(next_layout.get_hkl());

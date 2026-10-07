@@ -8,9 +8,12 @@
 #![allow(dead_code)]
 
 use crate::keyboard_hook::CCAPS_EXTRA_INFO;
+use crate::layout_manager;
 use std::mem;
+use std::time::Duration;
 use winapi::um::winuser::{
-    INPUT, INPUT_KEYBOARD, KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, VK_LWIN, VK_SPACE,
+    GetAsyncKeyState, GetForegroundWindow, SendInput, INPUT, INPUT_KEYBOARD, KEYEVENTF_EXTENDEDKEY,
+    KEYEVENTF_KEYUP, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT, VK_SPACE,
 };
 
 // How long the window gets to apply WM_INPUTLANGCHANGEREQUEST before CCaps falls back
@@ -56,6 +59,70 @@ pub trait SwitchOps {
     // Injects Win+Space; false if the input was not inserted
     fn press_win_space(&self) -> bool;
     fn sleep_ms(&self, ms: u32);
+}
+
+// How long the foreground window gets to answer before it counts as busy
+const RESPONSIVE_TIMEOUT_MS: u32 = 100;
+
+// SwitchOps backed by WinAPI
+pub struct SystemOps;
+
+impl SwitchOps for SystemOps {
+    fn foreground(&self) -> usize {
+        unsafe { GetForegroundWindow() as usize }
+    }
+
+    fn current_layout(&self) -> Option<usize> {
+        layout_manager::current_layout_hkl()
+    }
+
+    fn post_request(&self, target: usize) -> bool {
+        layout_manager::post_layout_request(target)
+    }
+
+    fn is_installed(&self, layout: usize) -> bool {
+        layout_manager::installed_layouts().contains(&layout)
+    }
+
+    fn installed_layout_count(&self) -> usize {
+        layout_manager::installed_layouts().len()
+    }
+
+    fn modifiers_held(&self) -> bool {
+        [VK_SHIFT, VK_CONTROL, VK_MENU, VK_LWIN, VK_RWIN]
+            .iter()
+            .any(|&vk| unsafe { GetAsyncKeyState(vk) } as u16 & 0x8000 != 0)
+    }
+
+    fn target_responsive(&self) -> bool {
+        layout_manager::foreground_responsive(RESPONSIVE_TIMEOUT_MS)
+    }
+
+    fn press_win_space(&self) -> bool {
+        unsafe {
+            let mut inputs = win_space_inputs();
+            let sent = SendInput(
+                inputs.len() as u32,
+                inputs.as_mut_ptr(),
+                mem::size_of::<INPUT>() as i32,
+            );
+            if (sent as usize) < inputs.len() {
+                // Never leave Win held down
+                let mut release = win_space_release_inputs();
+                SendInput(
+                    release.len() as u32,
+                    release.as_mut_ptr(),
+                    mem::size_of::<INPUT>() as i32,
+                );
+                return false;
+            }
+            true
+        }
+    }
+
+    fn sleep_ms(&self, ms: u32) {
+        std::thread::sleep(Duration::from_millis(ms as u64));
+    }
 }
 
 // Switches the foreground window to `target`: posts the request, verifies it, and if the

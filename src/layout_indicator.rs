@@ -148,14 +148,15 @@ pub unsafe fn update_layout_indicator_with_layout(layout: HKL) {
     }
 }
 
-// Public function to update Scroll Lock indicator based on current layout
+// Public function to set the Scroll Lock indicator at startup. Without a foreground
+// window (e.g. right after login) uses the default input language.
 pub unsafe fn update_layout_indicator() {
     unsafe {
         // English layout: Scroll Lock OFF
         // Non-English layout: Scroll Lock ON
         // Unreadable layout: leave Scroll Lock as it is
-        if let Some(is_english) = current_layout_is_english() {
-            apply_indicator(!is_english);
+        if let Some(layout) = layout_manager::get_current_layout() {
+            apply_indicator(!is_english_layout_hkl(layout.get_hkl()));
         }
     }
 }
