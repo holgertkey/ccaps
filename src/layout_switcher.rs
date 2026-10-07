@@ -133,6 +133,14 @@ pub fn layout_code(hkl: usize) -> String {
 pub const VERIFY_TIMEOUT_MS: u32 = 150;
 // How long to wait for the layout to change after one Win+Space (measured: 5-11 ms)
 pub const PRESS_TIMEOUT_MS: u32 = 100;
+// Pause after a press changed the layout, before the next press. Presses sent right one
+// after another were sometimes lost by the Windows language switcher (about 1 in 20
+// three-press switches, always the third press).
+pub const PRESS_SETTLE_MS: u32 = 50;
+// Extra wait when a press had no visible effect, before it counts as lost
+pub const LOST_PRESS_WAIT_MS: u32 = 200;
+// Lost presses repeated per switch
+pub const MAX_PRESS_RETRIES: usize = 1;
 // Interval between layout reads while waiting
 pub const POLL_INTERVAL_MS: u32 = 10;
 
@@ -253,6 +261,8 @@ pub struct SwitchReport {
     pub presses: usize,
     // The window applied the request, but only after the verification timeout
     pub late: bool,
+    // Win+Space presses that were lost and repeated (included in `presses`)
+    pub retries: usize,
 }
 
 impl SwitchReport {
@@ -262,6 +272,7 @@ impl SwitchReport {
             reason,
             presses,
             late: false,
+            retries: 0,
         }
     }
 }
@@ -324,23 +335,40 @@ pub fn perform_switch(
     // Win+Space cycles through every installed layout, in an order CCaps can't know in
     // advance: press and re-read until the target, at most one full cycle. The first
     // read happens before any press, so a request applied late counts as Switched.
-    let max_presses = ops.installed_layout_count();
+    // `steps` counts presses that changed the layout (the cycle limit); `presses` also
+    // counts lost ones that were repeated.
+    let max_steps = ops.installed_layout_count();
+    let mut steps = 0;
     let mut presses = 0;
+    let mut retries = 0;
     loop {
-        let stop = |outcome, reason| SwitchReport::new(outcome, Some(reason), presses);
+        let stop = |outcome, reason| SwitchReport {
+            retries,
+            ..SwitchReport::new(outcome, Some(reason), presses)
+        };
         let Some(current) = ops.current_layout() else {
             return stop(Unverified, REASON_UNREADABLE);
         };
-        match fallback_step(current, target, presses, max_presses) {
+        match fallback_step(current, target, steps, max_steps) {
             FallbackStep::Done if presses == 0 => {
                 return SwitchReport {
                     late: true,
                     ..SwitchReport::new(Switched, None, 0)
                 }
             }
-            FallbackStep::Done => return SwitchReport::new(SwitchedByFallback, None, presses),
+            FallbackStep::Done => {
+                return SwitchReport {
+                    retries,
+                    ..SwitchReport::new(SwitchedByFallback, None, presses)
+                }
+            }
             FallbackStep::GiveUp => return stop(Failed, REASON_FULL_CYCLE),
             FallbackStep::PressAgain => {}
+        }
+        if presses > 0 {
+            // Give the language switcher time after the previous press; done before
+            // the checks below, so a newer request or a modifier pressed meanwhile counts
+            ops.sleep_ms(PRESS_SETTLE_MS);
         }
         if superseded() {
             return stop(Superseded, REASON_SUPERSEDED);
@@ -355,13 +383,44 @@ pub fn perform_switch(
             return stop(Failed, REASON_PRESS_FAILED);
         }
         presses += 1;
-        // No change after a press: it was blocked or is still on its way. Pressing again
-        // could overshoot the target once it lands, so stop here.
-        match poll_layout(ops, PRESS_TIMEOUT_MS, |layout| layout != current) {
-            Some(layout) if layout != current => {}
-            _ => return SwitchReport::new(Unverified, Some(REASON_PRESS_NO_EFFECT), presses),
+        match wait_for_press(ops, current) {
+            PressResult::Changed => steps += 1,
+            // Lost: no change even after the extra wait, so pressing again can't
+            // overshoot because of it. Repeat it, but only so many times.
+            PressResult::Lost if retries < MAX_PRESS_RETRIES => retries += 1,
+            PressResult::Lost => {
+                return SwitchReport {
+                    retries,
+                    ..SwitchReport::new(Unverified, Some(REASON_PRESS_NO_EFFECT), presses)
+                }
+            }
+            PressResult::Unreadable => {
+                return SwitchReport {
+                    retries,
+                    ..SwitchReport::new(Unverified, Some(REASON_UNREADABLE), presses)
+                }
+            }
         }
     }
+}
+
+enum PressResult {
+    Changed,
+    Lost,
+    Unreadable,
+}
+
+// Waits for the layout to change from `before` after a Win+Space: PRESS_TIMEOUT_MS as
+// measured, then LOST_PRESS_WAIT_MS more in case the press is only slow
+fn wait_for_press(ops: &impl SwitchOps, before: usize) -> PressResult {
+    for timeout in [PRESS_TIMEOUT_MS, LOST_PRESS_WAIT_MS] {
+        match poll_layout(ops, timeout, |layout| layout != before) {
+            Some(layout) if layout != before => return PressResult::Changed,
+            Some(_) => {}
+            None => return PressResult::Unreadable,
+        }
+    }
+    PressResult::Lost
 }
 
 // One diagnostics line for a finished switch, e.g.
@@ -383,6 +442,9 @@ pub fn describe_switch(
     }
     if report.presses > 0 {
         details.push(format!("{}× Win+Space", report.presses));
+    }
+    if report.retries > 0 {
+        details.push(format!("{} lost and repeated", report.retries));
     }
     if let Some(reason) = report.reason {
         details.push(reason.to_string());
@@ -510,6 +572,8 @@ mod tests {
         busy: bool,
         delayed_request: Cell<Option<usize>>,
         ignores_win_space: bool,
+        // Win+Space presses (1-based) that are lost
+        lost_presses: Vec<usize>,
         modifiers: bool,
         // Foreground changes once this many presses were made
         switch_window_after: Option<usize>,
@@ -527,6 +591,7 @@ mod tests {
                 busy: false,
                 delayed_request: Cell::new(None),
                 ignores_win_space: false,
+                lost_presses: Vec::new(),
                 modifiers: false,
                 switch_window_after: None,
                 presses: Cell::new(0),
@@ -589,7 +654,7 @@ mod tests {
 
         fn press_win_space(&self) -> bool {
             self.presses.set(self.presses.get() + 1);
-            if !self.ignores_win_space {
+            if !self.ignores_win_space && !self.lost_presses.contains(&self.presses.get()) {
                 let index = CYCLE.iter().position(|&l| l == self.layout.get()).unwrap();
                 self.layout.set(CYCLE[(index + 1) % CYCLE.len()]);
             }
@@ -715,8 +780,8 @@ mod tests {
             perform_switch(&window, RU, &never),
             SwitchOutcome::Unverified
         );
-        // The layout didn't change after the first press, so CCaps stops right there
-        assert_eq!(window.presses.get(), 1);
+        // The first press and its one repetition had no effect, so CCaps stops there
+        assert_eq!(window.presses.get(), 1 + MAX_PRESS_RETRIES);
     }
 
     #[test]
@@ -764,6 +829,61 @@ mod tests {
         fn sleep_ms(&self, ms: u32) {
             self.0.sleep_ms(ms)
         }
+    }
+
+    #[test]
+    fn test_lost_press_is_repeated() {
+        // Regression: the Windows language switcher sometimes lost the third of three
+        // quick presses, leaving the window on the wrong layout (de instead of ru)
+        let window = FakeWindow {
+            lost_presses: vec![3],
+            ..FakeWindow::deaf(US)
+        };
+        let report = perform_switch(&window, RU, &never);
+        assert_eq!(report.outcome, SwitchOutcome::SwitchedByFallback);
+        assert_eq!(window.layout.get(), RU);
+        assert_eq!(report.presses, 4);
+        assert_eq!(report.retries, 1);
+    }
+
+    #[test]
+    fn test_only_one_lost_press_is_repeated() {
+        let window = FakeWindow {
+            lost_presses: vec![1, 2],
+            ..FakeWindow::deaf(US)
+        };
+        let report = perform_switch(&window, RU, &never);
+        assert_eq!(report.outcome, SwitchOutcome::Unverified);
+        assert_eq!(report.reason, Some(REASON_PRESS_NO_EFFECT));
+        assert_eq!(report.presses, 2);
+    }
+
+    #[test]
+    fn test_lost_press_does_not_shorten_the_cycle_limit() {
+        // A repeated press doesn't count against "one press per installed layout":
+        // the target three steps away is still reached
+        let window = FakeWindow {
+            lost_presses: vec![1],
+            ..FakeWindow::deaf(US)
+        };
+        assert_eq!(
+            perform_switch(&window, RU, &never),
+            SwitchOutcome::SwitchedByFallback
+        );
+        assert_eq!(window.presses.get(), 4);
+    }
+
+    #[test]
+    fn test_describe_mentions_repeated_press() {
+        let window = FakeWindow {
+            lost_presses: vec![3],
+            ..FakeWindow::deaf(US)
+        };
+        let report = perform_switch(&window, RU, &never);
+        assert_eq!(
+            describe_switch(&report, "us", "ru", 520, "app.exe (Cls)", 0),
+            "us → ru  SwitchedByFallback: 4× Win+Space, 1 lost and repeated, 520 ms · app.exe (Cls)"
+        );
     }
 
     #[test]

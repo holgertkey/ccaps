@@ -197,7 +197,7 @@ CCaps uses Windows low-level keyboard hooks to intercept Caps Lock key presses a
 
 Some applications don't handle the standard layout change request, so Caps Lock used to do nothing in them. CCaps now checks the layout after every switch. If it hasn't changed within 150 ms, CCaps presses **Win+Space** (the Windows layout switch shortcut) and re-reads the layout after each press until the target layout is reached.
 
-- In such applications a switch takes about 150–200 ms instead of a few milliseconds
+- In such applications a switch takes about 170–300 ms (depending on how many Win+Space presses are needed) instead of a few milliseconds
 - Win+Space cycles through **all** installed layouts, so CCaps may press it several times to reach the next selected one; you may briefly see the intermediate layouts
 - To avoid switching twice or triggering another shortcut, the fallback is skipped when the window is busy (not responding), when Shift, Ctrl, Alt or Win is held, when you press Caps Lock again, or when another window gets focus
 
