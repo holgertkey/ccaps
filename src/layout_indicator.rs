@@ -133,18 +133,25 @@ fn sync_action(last_applied: u8, wanted_on: Option<bool>, in_grace: bool) -> Opt
     }
 }
 
-// Public function to update Scroll Lock indicator with specific layout.
-// Called right after CCaps requested a switch to `layout`: shows the new state at once
-// and starts the grace period during which the periodic sync doesn't override it.
-pub unsafe fn update_layout_indicator_with_layout(layout: HKL) {
-    unsafe {
-        if let Ok(mut last_switch) = LAST_SWITCH.lock() {
-            *last_switch = Some(Instant::now());
-        }
+// Called when CCaps sends a switch request: the periodic sync leaves the indicator alone
+// for SWITCH_GRACE while the foreground window applies it
+pub fn begin_switch() {
+    if let Ok(mut last_switch) = LAST_SWITCH.lock() {
+        *last_switch = Some(Instant::now());
+    }
+}
 
-        // English layout: Scroll Lock OFF
-        // Non-English layout: Scroll Lock ON
-        apply_indicator(!is_english_layout_hkl(layout));
+// Called on the main thread when a switch is finished, with the layout read afterwards
+// (None if unreadable): the indicator shows the layout the window actually has, not the
+// one CCaps asked for
+pub unsafe fn show_switched_layout(layout: Option<usize>) {
+    unsafe {
+        begin_switch();
+        if let Some(layout) = layout {
+            // English layout: Scroll Lock OFF
+            // Non-English layout: Scroll Lock ON
+            apply_indicator(!is_english_layout_hkl(layout as HKL));
+        }
     }
 }
 

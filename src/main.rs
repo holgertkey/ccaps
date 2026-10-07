@@ -18,6 +18,7 @@ use winapi::shared::minwindef::*;
 use winapi::shared::windef::*;
 use winapi::um::errhandlingapi::GetLastError;
 use winapi::um::handleapi::CloseHandle;
+use winapi::um::processthreadsapi::GetCurrentThreadId;
 use winapi::um::wincon::*;
 use winapi::um::winuser::*;
 
@@ -213,6 +214,9 @@ fn run_main_loop(country_codes: Vec<String>) {
             }
         }
 
+        // Switching runs on a worker thread that reports back to this one
+        layout_switcher::start(GetCurrentThreadId(), !is_background);
+
         // Create hidden window for message handling
         create_message_window();
 
@@ -230,6 +234,12 @@ fn run_main_loop(country_codes: Vec<String>) {
             // Handle quit message
             if msg.message == WM_QUIT {
                 break;
+            }
+
+            // A layout switch finished on the worker thread
+            if msg.message == layout_switcher::WM_SWITCH_DONE {
+                keyboard_hook::finish_switch(msg.wParam as u64, msg.lParam as usize);
+                continue;
             }
 
             // Handle other system messages
@@ -259,6 +269,7 @@ unsafe fn detach_from_console() {
 fn cleanup_and_exit() {
     unsafe {
         uninstall_hook();
+        layout_switcher::stop();
         let mutex = MUTEX_HANDLE.swap(ptr::null_mut(), Ordering::SeqCst);
         if !mutex.is_null() {
             CloseHandle(mutex);

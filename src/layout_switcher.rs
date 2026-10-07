@@ -3,18 +3,116 @@
 //
 // The decision logic works through the SwitchOps trait, so it can be tested against a
 // fake window without touching WinAPI.
-
-// Wired into the hook in a later change
-#![allow(dead_code)]
+//
+// Switching runs on a worker thread, never in the keyboard hook: Windows silently removes
+// a low-level hook that doesn't return quickly (LowLevelHooksTimeout), and verifying a
+// switch means waiting. The hook only sends a request; when a switch is done, the worker
+// posts WM_SWITCH_DONE to the main thread with the layout it read afterwards.
 
 use crate::keyboard_hook::CCAPS_EXTRA_INFO;
-use crate::layout_manager;
+use crate::layout_manager::{self, LayoutInfo};
 use std::mem;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::Mutex;
 use std::time::Duration;
+use winapi::shared::minwindef::{HKL, LPARAM, WPARAM};
 use winapi::um::winuser::{
-    GetAsyncKeyState, GetForegroundWindow, SendInput, INPUT, INPUT_KEYBOARD, KEYEVENTF_EXTENDEDKEY,
-    KEYEVENTF_KEYUP, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT, VK_SPACE,
+    GetAsyncKeyState, GetForegroundWindow, PostThreadMessageW, SendInput, INPUT, INPUT_KEYBOARD,
+    KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT,
+    VK_SPACE, WM_APP,
 };
+
+// Posted to the main thread when a switch is finished: wParam = request generation,
+// lParam = layout read afterwards (0 if it can't be read)
+pub const WM_SWITCH_DONE: u32 = WM_APP + 1;
+
+struct SwitchRequest {
+    target: usize,
+    generation: u64,
+}
+
+// Generation of the latest request; a worker busy with an older one drops it
+static LATEST_GENERATION: AtomicU64 = AtomicU64::new(0);
+static REQUESTS: Mutex<Option<Sender<SwitchRequest>>> = Mutex::new(None);
+
+// Starts the worker thread. Results go to `main_thread` as WM_SWITCH_DONE; `verbose`
+// prints every outcome (foreground mode).
+pub fn start(main_thread: u32, verbose: bool) {
+    let (sender, receiver) = mpsc::channel();
+    if let Ok(mut requests) = REQUESTS.lock() {
+        *requests = Some(sender);
+    }
+    std::thread::spawn(move || run_worker(receiver, main_thread, verbose));
+}
+
+// Stops the worker thread once it finishes the current switch
+pub fn stop() {
+    if let Ok(mut requests) = REQUESTS.lock() {
+        requests.take();
+    }
+}
+
+// Asks the worker to switch the foreground window to `target`. Returns the request's
+// generation, which comes back with WM_SWITCH_DONE, or None if the worker isn't running.
+pub fn request(target: usize) -> Option<u64> {
+    let generation = LATEST_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
+    let requests = REQUESTS.lock().ok()?;
+    requests
+        .as_ref()?
+        .send(SwitchRequest { target, generation })
+        .ok()?;
+    Some(generation)
+}
+
+fn run_worker(receiver: Receiver<SwitchRequest>, main_thread: u32, verbose: bool) {
+    let ops = SystemOps {
+        fallback_enabled: false,
+    };
+    // Ends when stop() drops the sender
+    while let Ok(first) = receiver.recv() {
+        // Rapid presses: only the latest request matters
+        let request = latest_request(first, &receiver);
+        let generation = request.generation;
+        let superseded = || LATEST_GENERATION.load(Ordering::SeqCst) != generation;
+
+        let outcome = perform_switch(&ops, request.target, &superseded);
+        if outcome == SwitchOutcome::Superseded {
+            // The newer request is already queued and will report its own result
+            continue;
+        }
+        let layout = ops.current_layout().unwrap_or(0);
+        if verbose {
+            println!(
+                "Switch to {}: {:?} (layout now {})",
+                layout_code(request.target),
+                outcome,
+                if layout == 0 {
+                    "unknown".to_string()
+                } else {
+                    layout_code(layout)
+                }
+            );
+        }
+        unsafe {
+            PostThreadMessageW(
+                main_thread,
+                WM_SWITCH_DONE,
+                generation as WPARAM,
+                layout as LPARAM,
+            );
+        }
+    }
+}
+
+// The last of `first` and the requests already waiting in the channel
+fn latest_request(first: SwitchRequest, receiver: &Receiver<SwitchRequest>) -> SwitchRequest {
+    receiver.try_iter().last().unwrap_or(first)
+}
+
+fn layout_code(hkl: usize) -> String {
+    LayoutInfo::new(hkl as HKL).short_code
+}
 
 // How long the window gets to apply WM_INPUTLANGCHANGEREQUEST before CCaps falls back
 // to Win+Space (measured: 5-26 ms)
@@ -65,7 +163,10 @@ pub trait SwitchOps {
 const RESPONSIVE_TIMEOUT_MS: u32 = 100;
 
 // SwitchOps backed by WinAPI
-pub struct SystemOps;
+pub struct SystemOps {
+    // Whether Win+Space may be pressed when the window ignores the request
+    pub fallback_enabled: bool,
+}
 
 impl SwitchOps for SystemOps {
     fn foreground(&self) -> usize {
@@ -99,6 +200,9 @@ impl SwitchOps for SystemOps {
     }
 
     fn press_win_space(&self) -> bool {
+        if !self.fallback_enabled {
+            return false;
+        }
         unsafe {
             let mut inputs = win_space_inputs();
             let sent = SendInput(
@@ -578,6 +682,37 @@ mod tests {
         };
         assert_eq!(perform_switch(&window, RU, &never), SwitchOutcome::Failed);
         assert_eq!(window.presses.get(), 1);
+    }
+
+    #[test]
+    fn test_latest_request_wins() {
+        let (sender, receiver) = mpsc::channel();
+        for generation in 2..=4 {
+            sender
+                .send(SwitchRequest {
+                    target: generation as usize,
+                    generation,
+                })
+                .unwrap();
+        }
+        let first = SwitchRequest {
+            target: 1,
+            generation: 1,
+        };
+        let latest = latest_request(first, &receiver);
+        assert_eq!(latest.generation, 4);
+        assert_eq!(latest.target, 4);
+        assert!(receiver.try_recv().is_err(), "older requests are dropped");
+    }
+
+    #[test]
+    fn test_single_request_is_kept() {
+        let (_sender, receiver) = mpsc::channel();
+        let first = SwitchRequest {
+            target: RU,
+            generation: 7,
+        };
+        assert_eq!(latest_request(first, &receiver).generation, 7);
     }
 
     #[test]

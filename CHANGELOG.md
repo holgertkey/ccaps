@@ -5,6 +5,8 @@
 - 🐛 Fixed a stale layout in Windows 11 Notepad and UWP apps, where the focused control runs on another thread than the window: the current layout is now read from the focused control's thread, so the indicator and the next layout follow the actual one
 - 🐛 The Scroll Lock indicator is left as it is when the layout can't be read, instead of being turned on
 - ✅ Added unit tests for layout reading order and unreadable-layout handling
+- 🔧 Layout switching moved from the keyboard hook to a worker thread: the hook only picks the target, so slow windows can no longer delay it past Windows' hook timeout. Rapid Caps Lock presses: the latest request wins
+- 🐛 The Scroll Lock indicator now shows the layout the window actually has after a switch, not the one CCaps asked for (e.g. a window that ignored the request no longer makes it lie)
 - 🔧 CCaps no longer calls `ActivateKeyboardLayout` on its own thread (it had no effect on other windows); the result of the layout request is now reported instead of ignored
 
 ### v0.10.2

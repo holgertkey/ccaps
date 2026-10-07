@@ -1,8 +1,10 @@
 use crate::layout_indicator;
 use crate::layout_manager::{self, LayoutInfo};
+use crate::layout_switcher;
 use std::mem;
 use std::ptr;
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 use winapi::shared::minwindef::*;
 use winapi::shared::windef::HHOOK;
 use winapi::um::libloaderapi::GetModuleHandleW;
@@ -15,12 +17,25 @@ static mut HOOK: HHOOK = ptr::null_mut();
 struct HookData {
     selected_layouts: Vec<LayoutInfo>,
     current_layout_index: usize,
+    // Switch sent to the worker and not finished yet
+    pending: Option<PendingSwitch>,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct PendingSwitch {
+    target: usize,
+    generation: u64,
+    sent_at: Instant,
+}
+
+// A pending switch older than this is ignored, in case its result never arrives
+const PENDING_TIMEOUT: Duration = Duration::from_secs(2);
 
 // Use a Mutex to protect the hook data
 static HOOK_DATA: Mutex<HookData> = Mutex::new(HookData {
     selected_layouts: Vec::new(),
     current_layout_index: 0,
+    pending: None,
 });
 
 // Initialize layout switching with specific country codes
@@ -143,40 +158,70 @@ unsafe extern "system" fn low_level_keyboard_proc(
     }
 }
 
-// Function to switch keyboard layout
+// Function to switch keyboard layout. Runs inside the hook, so it only picks the target
+// and hands the switch over to the worker thread.
 unsafe fn switch_keyboard_layout() {
     if let Ok(mut hook_data) = HOOK_DATA.lock() {
         if hook_data.selected_layouts.is_empty() {
             return;
         }
 
-        if hook_data.selected_layouts.len() == 1 {
+        let target = if hook_data.selected_layouts.len() == 1 {
             // Only one layout available, just activate it
-            layout_manager::post_layout_request(hook_data.selected_layouts[0].hkl);
-            layout_indicator::update_layout_indicator_with_layout(
-                hook_data.selected_layouts[0].get_hkl(),
-            );
-            return;
+            hook_data.selected_layouts[0].hkl
+        } else {
+            // Move to the layout after the one the foreground window actually has, so
+            // that switches made elsewhere (Win+Space, per-window layouts, a rejected
+            // request) don't leave CCaps cycling from a stale position. While a switch is
+            // still in progress, continue from its target instead: the actual layout
+            // hasn't changed yet, and rapid presses would all pick the same target.
+            let hkls: Vec<usize> = hook_data.selected_layouts.iter().map(|l| l.hkl).collect();
+            let base = live_pending_target(hook_data.pending, Instant::now())
+                .or_else(layout_manager::current_layout_hkl);
+            let current_index = current_layout_index(&hkls, base, hook_data.current_layout_index);
+            hook_data.current_layout_index = next_layout_index(hkls.len(), current_index);
+            hkls[hook_data.current_layout_index]
+        };
+
+        match layout_switcher::request(target) {
+            Some(generation) => {
+                hook_data.pending = Some(PendingSwitch {
+                    target,
+                    generation,
+                    sent_at: Instant::now(),
+                });
+                layout_indicator::begin_switch();
+            }
+            None => {
+                // The worker isn't running: at least ask the window directly
+                layout_manager::post_layout_request(target);
+            }
         }
-
-        // Move to the layout after the one the foreground window actually has, so that
-        // switches made elsewhere (Win+Space, per-window layouts, a rejected request)
-        // don't leave CCaps cycling from a stale position
-        let hkls: Vec<usize> = hook_data.selected_layouts.iter().map(|l| l.hkl).collect();
-        let current_index = current_layout_index(
-            &hkls,
-            layout_manager::current_layout_hkl(),
-            hook_data.current_layout_index,
-        );
-        hook_data.current_layout_index = next_layout_index(hkls.len(), current_index);
-        let next_layout = &hook_data.selected_layouts[hook_data.current_layout_index];
-
-        // Switch to the new layout
-        layout_manager::post_layout_request(next_layout.hkl);
-
-        // Update Scroll Lock indicator
-        layout_indicator::update_layout_indicator_with_layout(next_layout.get_hkl());
     }
+}
+
+// Called on the main thread when the worker reports a finished switch (WM_SWITCH_DONE):
+// `layout` is the layout read afterwards, 0 if unreadable
+pub unsafe fn finish_switch(generation: u64, layout: usize) {
+    unsafe {
+        if let Ok(mut hook_data) = HOOK_DATA.lock() {
+            hook_data.pending = pending_after_done(hook_data.pending, generation);
+        }
+        layout_indicator::show_switched_layout((layout != 0).then_some(layout));
+    }
+}
+
+// Target of the pending switch, unless it timed out
+fn live_pending_target(pending: Option<PendingSwitch>, now: Instant) -> Option<usize> {
+    pending
+        .filter(|p| now.duration_since(p.sent_at) < PENDING_TIMEOUT)
+        .map(|p| p.target)
+}
+
+// Pending switch after the one with `generation` finished: cleared if it was that one,
+// kept if a newer request is still in progress
+fn pending_after_done(pending: Option<PendingSwitch>, generation: u64) -> Option<PendingSwitch> {
+    pending.filter(|p| p.generation != generation)
 }
 
 // Index of the current layout among the selected ones (`selected` holds their HKLs).
@@ -323,6 +368,62 @@ mod tests {
         assert_eq!(
             next_layout_index(2, current_layout_index(&[US, RU], None, 1)),
             0
+        );
+    }
+
+    fn pending(target: usize, generation: u64, sent_at: Instant) -> Option<PendingSwitch> {
+        Some(PendingSwitch {
+            target,
+            generation,
+            sent_at,
+        })
+    }
+
+    #[test]
+    fn test_rapid_presses_continue_from_pending_target() {
+        // First press (us -> ru) still in progress, the window still reports us: the
+        // second press must go on from ru, not pick ru again
+        let now = Instant::now();
+        let base = live_pending_target(pending(RU, 1, now), now).or(Some(US));
+        let index = current_layout_index(&[US, RU, DE], base, 1);
+        assert_eq!(next_layout_index(3, index), 2);
+    }
+
+    #[test]
+    fn test_without_pending_switch_actual_layout_is_used() {
+        let base = live_pending_target(None, Instant::now()).or(Some(DE));
+        assert_eq!(base, Some(DE));
+    }
+
+    #[test]
+    fn test_timed_out_pending_switch_is_ignored() {
+        let sent_at = Instant::now();
+        assert_eq!(
+            live_pending_target(pending(RU, 1, sent_at), sent_at + PENDING_TIMEOUT),
+            None
+        );
+        assert_eq!(
+            live_pending_target(
+                pending(RU, 1, sent_at),
+                sent_at + Duration::from_millis(100)
+            ),
+            Some(RU)
+        );
+    }
+
+    #[test]
+    fn test_finished_switch_clears_pending() {
+        // Also after a failed switch: the next press starts from the actual layout
+        let now = Instant::now();
+        assert_eq!(pending_after_done(pending(RU, 3, now), 3), None);
+    }
+
+    #[test]
+    fn test_older_result_keeps_newer_pending_switch() {
+        let now = Instant::now();
+        assert_eq!(
+            pending_after_done(pending(DE, 4, now), 3),
+            pending(DE, 4, now)
         );
     }
 
