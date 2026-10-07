@@ -1,6 +1,6 @@
 # Changelog
 
-### v0.11.0 (unreleased)
+### v0.11.0
 - 🔄 **Commands renamed** (systemctl-like: persistent state vs. the running process):
   - `-enable [-xx ...]` (was `-start`): save settings, add to auto-startup and start now
   - `-disable` (was `-stop`): stop, remove from auto-startup and delete settings
