@@ -8,12 +8,15 @@ use std::os::windows::ffi::OsStrExt;
 use std::path::Path;
 use std::ptr;
 use winapi::shared::minwindef::*;
+use winapi::shared::windef::HWND;
 use winapi::shared::winerror::*;
 use winapi::um::errhandlingapi::GetLastError;
 use winapi::um::handleapi::CloseHandle;
-use winapi::um::processthreadsapi::{CreateProcessW, PROCESS_INFORMATION, STARTUPINFOW};
-use winapi::um::synchapi::CreateMutexW;
-use winapi::um::winbase::CREATE_NO_WINDOW;
+use winapi::um::processthreadsapi::{
+    CreateProcessW, GetExitCodeProcess, PROCESS_INFORMATION, STARTUPINFOW,
+};
+use winapi::um::synchapi::{CreateMutexW, WaitForSingleObject};
+use winapi::um::winbase::{CREATE_NO_WINDOW, WAIT_OBJECT_0};
 use winapi::um::winnt::{HANDLE, KEY_QUERY_VALUE, KEY_SET_VALUE, REG_SZ};
 use winapi::um::winreg::*;
 use winapi::um::winuser::*;
@@ -291,13 +294,7 @@ fn handle_enable(country_codes: &[String]) -> i32 {
     }
 
     // Start in background (completely detached process)
-    if let Err(e) = start_background_process(country_codes) {
-        eprintln!("Failed to start background process: {}", e);
-        return 1;
-    }
-
-    println!("CCaps Layout Switcher started in background.");
-    0
+    launch_background(country_codes)
 }
 
 // -start: start the background process now. Without country codes it uses the saved
@@ -324,16 +321,11 @@ fn handle_start(country_codes: &[String]) -> i32 {
     }
 
     // Start in background (completely detached process)
-    if let Err(e) = start_background_process(country_codes) {
-        eprintln!("Failed to start background process: {}", e);
-        return 1;
-    }
-
-    println!("CCaps Layout Switcher started in background.");
-    if !is_in_startup() {
+    let exit_code = launch_background(country_codes);
+    if exit_code == 0 && !is_in_startup() {
         println!("It won't start at login; use 'ccaps -enable' for that.");
     }
-    0
+    exit_code
 }
 
 fn ask_confirmation(prompt: &str) -> bool {
@@ -677,7 +669,7 @@ fn background_command_line(exe_path: &Path, country_codes: &[String]) -> String 
 //
 // The working directory is the executable's folder, so the background process doesn't
 // keep the caller's current folder open (it couldn't be deleted or renamed).
-fn start_background_process(country_codes: &[String]) -> Result<(), String> {
+fn start_background_process(country_codes: &[String]) -> Result<StartResult, String> {
     let exe_path = env::current_exe().map_err(|_| "Failed to get executable path")?;
     let working_dir = exe_path
         .parent()
@@ -713,27 +705,108 @@ fn start_background_process(country_codes: &[String]) -> Result<(), String> {
         if created == 0 {
             return Err(format!("Failed to start process: error {}", GetLastError()));
         }
-
-        // CCaps doesn't wait for the background process
         CloseHandle(process_info.hThread);
+
+        // Wait until the background process is ready (its window exists, which is also
+        // what -stop looks for) or has exited, e.g. because of invalid saved codes
+        let mut waited_ms = 0;
+        let result = loop {
+            let mut exit_code: DWORD = 0;
+            let exited = WaitForSingleObject(process_info.hProcess, 0) == WAIT_OBJECT_0
+                && GetExitCodeProcess(process_info.hProcess, &mut exit_code) != 0;
+            let window_found = !find_background_window().is_null();
+            if let Some(result) =
+                start_wait_step(window_found, exited.then_some(exit_code), waited_ms)
+            {
+                break result;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(START_POLL_MS));
+            waited_ms += START_POLL_MS;
+        };
         CloseHandle(process_info.hProcess);
+        Ok(result)
     }
-    Ok(())
+}
+
+// How long -start/-enable wait for the background process to be ready
+const START_TIMEOUT_MS: u64 = 3000;
+const START_POLL_MS: u64 = 50;
+
+#[derive(Debug, PartialEq)]
+enum StartResult {
+    // The background process is ready
+    Running,
+    // It exited right away with this code
+    Exited(u32),
+    // It neither got ready nor exited within START_TIMEOUT_MS
+    StillStarting,
+}
+
+// One step of waiting for a started background process: None means keep waiting
+fn start_wait_step(
+    window_found: bool,
+    exit_code: Option<u32>,
+    waited_ms: u64,
+) -> Option<StartResult> {
+    if window_found {
+        Some(StartResult::Running)
+    } else if let Some(code) = exit_code {
+        Some(StartResult::Exited(code))
+    } else if waited_ms >= START_TIMEOUT_MS {
+        Some(StartResult::StillStarting)
+    } else {
+        None
+    }
+}
+
+// Starts the background process and reports the result; returns the exit code for
+// -start/-enable
+fn launch_background(country_codes: &[String]) -> i32 {
+    match start_background_process(country_codes) {
+        Ok(StartResult::Running) => {
+            println!("CCaps Layout Switcher started in background.");
+            0
+        }
+        Ok(StartResult::StillStarting) => {
+            println!(
+                "CCaps Layout Switcher is starting in background (not ready yet; check with 'ccaps -status')."
+            );
+            0
+        }
+        Ok(StartResult::Exited(code)) => {
+            eprintln!(
+                "The background process exited right away (code {}). Run 'ccaps -run' to see why.",
+                code
+            );
+            1
+        }
+        Err(e) => {
+            eprintln!("Failed to start background process: {}", e);
+            1
+        }
+    }
+}
+
+// The hidden window of the running background process, or null if there is none
+fn find_background_window() -> HWND {
+    unsafe {
+        FindWindowA(
+            ptr::null(),
+            b"CCaps Layout Switcher\0".as_ptr() as *const i8,
+        )
+    }
 }
 
 fn stop_background_process() -> bool {
     // Send quit message to running instance
-    unsafe {
-        let window = FindWindowA(
-            ptr::null(),
-            b"CCaps Layout Switcher\0".as_ptr() as *const i8,
-        );
-        if !window.is_null() {
-            PostMessageA(window, WM_QUIT, 0, 0);
-            return true;
-        }
+    let window = find_background_window();
+    if window.is_null() {
+        return false;
     }
-    false
+    unsafe {
+        PostMessageA(window, WM_QUIT, 0, 0);
+    }
+    true
 }
 
 pub fn create_mutex() -> HANDLE {
@@ -850,6 +923,45 @@ mod tests {
 
         let (_, neither) = status_recommendation(false, false);
         assert!(neither.unwrap().contains("-enable"));
+    }
+
+    #[test]
+    fn test_start_waits_until_window_or_exit() {
+        assert_eq!(start_wait_step(false, None, 0), None);
+        assert_eq!(start_wait_step(false, None, START_TIMEOUT_MS - 1), None);
+    }
+
+    #[test]
+    fn test_start_succeeds_when_window_appears() {
+        // Regression: -start used to report success at once, so '-start; -stop' in a
+        // script found no window and left the process running
+        assert_eq!(start_wait_step(true, None, 100), Some(StartResult::Running));
+    }
+
+    #[test]
+    fn test_start_reports_process_that_exited() {
+        // e.g. the saved config names a layout that was removed from Windows
+        assert_eq!(
+            start_wait_step(false, Some(1), 100),
+            Some(StartResult::Exited(1))
+        );
+    }
+
+    #[test]
+    fn test_start_gives_up_waiting_after_timeout() {
+        assert_eq!(
+            start_wait_step(false, None, START_TIMEOUT_MS),
+            Some(StartResult::StillStarting)
+        );
+    }
+
+    #[test]
+    fn test_ready_window_wins_over_exit_code() {
+        // Both seen in the same step: the window was there, so it did start
+        assert_eq!(
+            start_wait_step(true, Some(0), 100),
+            Some(StartResult::Running)
+        );
     }
 
     #[test]

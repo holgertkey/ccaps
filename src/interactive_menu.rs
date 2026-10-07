@@ -140,21 +140,19 @@ fn parse_menu_command(input: &str) -> CliCommand {
     }
 
     // Country codes after run/enable/start, validated against the installed layouts
+    // Only errors are printed here: each command prints which layouts it uses, and
+    // e.g. 'start' without codes uses the saved settings, not all layouts
     let validated_codes = || -> Result<Vec<String>, CliCommand> {
         let country_codes = parse_country_codes(&parts[1..]);
-        println!();
         if country_codes.is_empty() {
-            println!("✓ Using all available layouts");
             return Ok(country_codes);
         }
         match layout_manager::validate_country_codes(
             &country_codes.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
         ) {
-            Ok(_) => {
-                println!("✓ Validated country codes: {}", country_codes.join(", "));
-                Ok(country_codes)
-            }
+            Ok(_) => Ok(country_codes),
             Err(error) => {
+                println!();
                 println!("✗ Error: {}", error);
                 Err(CliCommand::Unknown(format!("Invalid codes: {}", input)))
             }
