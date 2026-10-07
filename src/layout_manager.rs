@@ -86,6 +86,12 @@ pub fn current_layout_hkl() -> Option<usize> {
 // - the thread of the foreground window itself;
 // - the thread of its default IME window: for console windows both threads above read
 //   as 0, while the IME window belongs to the real conhost input thread.
+//
+// Console windows come first in another way: Windows reports the console program
+// (cmd.exe, powershell.exe, ...) as the window's owner, while conhost.exe handles its
+// input. If that program ever used window functions, its thread has a layout of its own
+// that never changes, so it would hide the real one. The IME window belongs to conhost,
+// so for a console the IME window's thread is read first.
 unsafe fn foreground_layout() -> Option<usize> {
     unsafe {
         let foreground = GetForegroundWindow();
@@ -100,12 +106,34 @@ unsafe fn foreground_layout() -> Option<usize> {
         } else {
             0
         };
+        let ime_window = ImmGetDefaultIMEWnd(foreground);
 
-        first_readable_layout(&[
-            &|| thread_layout(focus_thread),
-            &|| thread_layout(window_thread(foreground)),
-            &|| thread_layout(window_thread(ImmGetDefaultIMEWnd(foreground))),
-        ])
+        let focus = || thread_layout(focus_thread);
+        let window = || thread_layout(window_thread(foreground));
+        let ime = || thread_layout(window_thread(ime_window));
+        if is_console_window(window_process(foreground), window_process(ime_window)) {
+            first_readable_layout(&[&ime, &focus, &window])
+        } else {
+            first_readable_layout(&[&focus, &window, &ime])
+        }
+    }
+}
+
+// Whether the window's input is handled by another process than the one reported as its
+// owner: true for console windows, whose IME window belongs to conhost.exe. Unknown
+// processes (0) don't count.
+fn is_console_window(window_process: u32, ime_window_process: u32) -> bool {
+    window_process != 0 && ime_window_process != 0 && window_process != ime_window_process
+}
+
+// Process that owns `hwnd`, or 0 if there is no window
+unsafe fn window_process(hwnd: HWND) -> u32 {
+    unsafe {
+        let mut pid = 0;
+        if !hwnd.is_null() {
+            GetWindowThreadProcessId(hwnd, &mut pid);
+        }
+        pid
     }
 }
 
@@ -448,6 +476,34 @@ mod tests {
         assert_eq!(
             layout_request_target(foreground, HWND_BROADCAST),
             Some(foreground)
+        );
+    }
+
+    #[test]
+    fn test_console_window_is_detected_by_ime_window_process() {
+        // powershell.exe (11880) reported as the owner, IME window in conhost.exe (11156)
+        assert!(is_console_window(11880, 11156));
+    }
+
+    #[test]
+    fn test_normal_window_is_not_a_console() {
+        // The IME window belongs to the window's own process
+        assert!(!is_console_window(7664, 7664));
+    }
+
+    #[test]
+    fn test_unknown_process_is_not_a_console() {
+        assert!(!is_console_window(0, 11156));
+        assert!(!is_console_window(11880, 0));
+    }
+
+    #[test]
+    fn test_console_reads_conhost_layout_before_stale_program_layout() {
+        // Regression: a console program that used window functions has a frozen layout
+        // of its own (de); conhost has the real one (us). Console order: IME thread first.
+        assert_eq!(
+            first_readable_layout(&[&|| 0x0409_0409, &|| 0x0407_0407, &|| 0x0407_0407]),
+            Some(0x0409_0409)
         );
     }
 
