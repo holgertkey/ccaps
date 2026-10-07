@@ -8,6 +8,7 @@
   - `-stop` (was `-quit`): stop the background process only; **no longer deletes anything**
   - `-quit` was removed and prints a hint; the interactive menu got the same commands
 - 🐛 The background process no longer adds itself to auto-startup when the entry is missing (only `-enable` does)
+- 🐛 `-start`/`-enable` no longer hang scripts that capture their output: the background process is created without inheriting the caller's handles (it used to keep the output pipe or redirected file open), and runs in the executable's folder instead of keeping the caller's current folder open
 - ✅ Added unit tests for command parsing, country codes, `-status` recommendations and menu commands
 - 🚀 Caps Lock now switches the layout in applications that ignore the layout request (`WM_INPUTLANGCHANGEREQUEST`): when the layout hasn't changed after 150 ms, CCaps presses Win+Space until the target layout is reached, checking the layout after every press. It never presses more than once per installed layout, and skips the fallback when it could switch twice or do something else (busy window, held modifier, a newer Caps Lock press, another window focused)
 - 🐛 Fixed Caps Lock not switching the layout in classic console windows (`cmd.exe` in conhost): their layout read as 0, so CCaps always picked the first layout and the Scroll Lock indicator blinked. The layout is now read from the console's input thread (via its IME window)

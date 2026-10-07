@@ -1,15 +1,19 @@
 use crate::config;
 use crate::layout_manager;
 use std::env;
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::io::{self, Write};
+use std::mem;
 use std::os::windows::ffi::OsStrExt;
+use std::path::Path;
 use std::ptr;
 use winapi::shared::minwindef::*;
 use winapi::shared::winerror::*;
 use winapi::um::errhandlingapi::GetLastError;
 use winapi::um::handleapi::CloseHandle;
+use winapi::um::processthreadsapi::{CreateProcessW, PROCESS_INFORMATION, STARTUPINFOW};
 use winapi::um::synchapi::CreateMutexW;
+use winapi::um::winbase::CREATE_NO_WINDOW;
 use winapi::um::winnt::{HANDLE, KEY_QUERY_VALUE, KEY_SET_VALUE, REG_SZ};
 use winapi::um::winreg::*;
 use winapi::um::winuser::*;
@@ -591,12 +595,7 @@ fn add_to_startup(country_codes: &[String]) -> Result<(), String> {
         // Get current executable path
         let exe_path = env::current_exe().map_err(|_| "Failed to get executable path")?;
 
-        let mut exe_path_str = format!("\"{}\" --background", exe_path.display());
-
-        // Add country codes to the command line
-        for code in country_codes {
-            exe_path_str.push_str(&format!(" -{}", code));
-        }
+        let mut exe_path_str = background_command_line(&exe_path, country_codes);
         exe_path_str.push('\0');
 
         let exe_path_wide: Vec<u16> = OsString::from(exe_path_str).encode_wide().collect();
@@ -657,36 +656,69 @@ fn remove_from_startup() -> Result<(), String> {
     }
 }
 
-fn start_background_process(country_codes: &[String]) -> Result<(), String> {
-    use std::os::windows::process::CommandExt;
-    use std::process::Command;
-
-    let exe_path = env::current_exe().map_err(|_| "Failed to get executable path")?;
-
-    let mut command = Command::new(&exe_path);
-    command.arg("--background");
-
-    // Add country codes to the background process
+// Command line of the background process, as used for the Run key and for -start/-enable:
+// the quoted executable path, "--background" and the country codes
+fn background_command_line(exe_path: &Path, country_codes: &[String]) -> String {
+    let mut command_line = format!("\"{}\" --background", exe_path.display());
     for code in country_codes {
-        command.arg(format!("-{}", code));
+        command_line.push_str(&format!(" -{}", code));
     }
+    command_line
+}
 
-    // Use CREATE_NO_WINDOW flag to prevent creating a console window
-    // This ensures the background process doesn't affect the parent terminal
-    const CREATE_NO_WINDOW: u32 = 0x08000000;
-    command.creation_flags(CREATE_NO_WINDOW);
+// Starts the background process detached from the caller.
+//
+// std::process::Command can't be used here: it always creates the child with handle
+// inheritance on, so the child gets every inheritable handle of the caller, not only the
+// standard ones. A script that captures the output of 'ccaps -start' would then wait
+// forever (the background process keeps the pipe open), and a file the output was
+// redirected to would stay locked. So the process is created without inheriting any
+// handle and without standard handles (it detaches from the console anyway).
+//
+// The working directory is the executable's folder, so the background process doesn't
+// keep the caller's current folder open (it couldn't be deleted or renamed).
+fn start_background_process(country_codes: &[String]) -> Result<(), String> {
+    let exe_path = env::current_exe().map_err(|_| "Failed to get executable path")?;
+    let working_dir = exe_path
+        .parent()
+        .ok_or("Failed to get executable folder")?
+        .to_path_buf();
 
-    match command.spawn() {
-        Ok(child) => {
-            // Get the PID of the child process
-            let _pid = child.id();
+    let to_wide = |s: &OsStr| -> Vec<u16> { s.encode_wide().chain(std::iter::once(0)).collect() };
+    let application_wide = to_wide(exe_path.as_os_str());
+    // CreateProcessW may modify the command line buffer, so it must be mutable
+    let mut command_line_wide = to_wide(OsStr::new(&background_command_line(
+        &exe_path,
+        country_codes,
+    )));
+    let working_dir_wide = to_wide(working_dir.as_os_str());
 
-            // Unbind the child process - don't wait for it to complete
-            std::mem::forget(child);
-            Ok(())
+    unsafe {
+        let mut startup_info: STARTUPINFOW = mem::zeroed();
+        startup_info.cb = mem::size_of::<STARTUPINFOW>() as DWORD;
+        let mut process_info: PROCESS_INFORMATION = mem::zeroed();
+
+        let created = CreateProcessW(
+            application_wide.as_ptr(),
+            command_line_wide.as_mut_ptr(),
+            ptr::null_mut(),
+            ptr::null_mut(),
+            FALSE, // inherit no handles
+            CREATE_NO_WINDOW,
+            ptr::null_mut(),
+            working_dir_wide.as_ptr(),
+            &mut startup_info,
+            &mut process_info,
+        );
+        if created == 0 {
+            return Err(format!("Failed to start process: error {}", GetLastError()));
         }
-        Err(e) => Err(format!("Failed to start process: {}", e)),
+
+        // CCaps doesn't wait for the background process
+        CloseHandle(process_info.hThread);
+        CloseHandle(process_info.hProcess);
     }
+    Ok(())
 }
 
 fn stop_background_process() -> bool {
@@ -818,6 +850,40 @@ mod tests {
 
         let (_, neither) = status_recommendation(false, false);
         assert!(neither.unwrap().contains("-enable"));
+    }
+
+    #[test]
+    fn test_background_command_line_quotes_path_with_spaces() {
+        let exe = Path::new(r"C:\Program Files\CCaps\ccaps.exe");
+        assert_eq!(
+            background_command_line(exe, &codes(&["de", "fr"])),
+            r#""C:\Program Files\CCaps\ccaps.exe" --background -de -fr"#
+        );
+    }
+
+    #[test]
+    fn test_background_command_line_without_codes() {
+        // No codes: the background process loads the saved configuration
+        let exe = Path::new(r"C:\Users\me\bin\ccaps.exe");
+        assert_eq!(
+            background_command_line(exe, &[]),
+            r#""C:\Users\me\bin\ccaps.exe" --background"#
+        );
+    }
+
+    #[test]
+    fn test_background_command_line_parses_back() {
+        // What -start/-enable launch must parse as the internal background command
+        let exe = Path::new(r"C:\Program Files\CCaps\ccaps.exe");
+        let command_line = background_command_line(exe, &codes(&["ru"]));
+        let args: Vec<String> = command_line
+            .rsplit('"')
+            .next()
+            .unwrap()
+            .split_whitespace()
+            .map(String::from)
+            .collect();
+        assert_eq!(parse_command(&args), CliCommand::Background(codes(&["ru"])));
     }
 
     #[test]
