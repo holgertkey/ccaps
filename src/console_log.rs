@@ -26,7 +26,12 @@ pub fn log(message: &str) {
 // Startup header for foreground mode: the layouts Caps Lock cycles through as
 // (code, name), the index of the current one, the keys, and what the log lines mean.
 // Ends with a rule that separates it from the log.
-pub fn header(version: &str, layouts: &[(String, String)], current: Option<usize>) -> String {
+pub fn header(
+    version: &str,
+    layouts: &[(String, String)],
+    current: Option<usize>,
+    config: &crate::config::Config,
+) -> String {
     let mut lines = vec![
         format!(
             "CCaps Layout Switcher v{} · foreground mode · Ctrl+C to exit",
@@ -56,7 +61,16 @@ pub fn header(version: &str, layouts: &[(String, String)], current: Option<usize
         [
             "",
             "Shift + Caps Lock    toggle Caps Lock",
-            "Scroll Lock LED      OFF = English, ON = another layout",
+            if config.scroll_lock_indicator {
+                "Scroll Lock LED      OFF = English, ON = another layout"
+            } else {
+                "Scroll Lock LED      disabled (no indicator timer or key events)"
+            },
+            if config.win_space_fallback {
+                "Win+Space fallback   enabled"
+            } else {
+                "Win+Space fallback   disabled"
+            },
             "",
             "Log, one line per Caps Lock press:",
             "  Switched            the window applied the layout request",
@@ -106,7 +120,7 @@ mod tests {
 
     #[test]
     fn test_header_lists_each_layout_once_and_marks_current() {
-        let header = header("0.11.0", &layouts(), Some(0));
+        let header = header("0.11.0", &layouts(), Some(0), &crate::config::Config::new());
         assert!(header.starts_with("CCaps Layout Switcher v0.11.0 · foreground mode"));
         assert!(header.contains("\n  us  English (United States)  ← current\n"));
         assert!(header.contains("\n  ru  Russian\n"));
@@ -118,13 +132,13 @@ mod tests {
     #[test]
     fn test_header_without_known_current_layout() {
         // The current layout isn't among the selected ones (or can't be read)
-        let header = header("0.11.0", &layouts(), None);
+        let header = header("0.11.0", &layouts(), None, &crate::config::Config::new());
         assert!(!header.contains("← current"));
     }
 
     #[test]
     fn test_header_aligns_current_marker_with_longest_name() {
-        let header = header("0.11.0", &layouts(), Some(1));
+        let header = header("0.11.0", &layouts(), Some(1), &crate::config::Config::new());
         assert!(header.contains("\n  ru  Russian                  ← current\n"));
     }
 
