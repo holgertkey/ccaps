@@ -9,6 +9,7 @@ A lightweight Windows keyboard layout switcher that repurposes the Caps Lock key
 - **Shift + Caps Lock → Caps Lock**: Hold Shift and press Caps Lock to toggle Caps Lock functionality
 - **Optional Visual Indicator**: Scroll Lock LED shows the current layout when enabled; disabled by default
 - **Verified Switching**: Checks that the window actually switched; optional Win+Space fallback is disabled by default
+- **Fullscreen Passthrough**: Native Caps Lock input in fullscreen and borderless fullscreen apps; enabled by default and configurable
 - **Background Mode**: Runs silently in the background
 - **Auto-startup**: Automatically starts with Windows
 - **Configuration Persistence**: Remembers your layout preferences
@@ -17,7 +18,7 @@ A lightweight Windows keyboard layout switcher that repurposes the Caps Lock key
 
 ## Installation
 
-### Option 1: Install from crates.io (Recommended)
+### Option 1: Build this fork from source
 
 ```bash
 cargo install --git https://github.com/ts33kr/ccaps --locked
@@ -188,6 +189,20 @@ Both optional features default to `false`, including when loading an older confi
 These settings apply to foreground, background, and interactive runs. Language arguments override only the selected layouts. `-enable` preserves existing feature settings when saving languages. `-status` reports all settings. With fallback disabled, applications that ignore direct requests must be switched using Windows' language selector or Win+Space manually.
 
 Fullscreen passthrough checks the foreground window's client area against its monitor only when Caps Lock is pressed, without a watcher or polling timer. It also applies to fullscreen browsers and video players; ordinary maximized windows remain eligible for language switching. The press/release decision stays paired if focus changes while Caps Lock is held. Windowed games do not qualify. This does not establish anti-cheat compatibility.
+
+### Gaming and selected language pairs
+
+To use Caps Lock for English/Russian switching while leaving Ukrainian available through Windows' normal language selector, keep all three layouts installed and run:
+
+```bash
+ccaps -enable -ru
+```
+
+The single `ru` filter includes English automatically; Ukrainian stays outside the Caps Lock cycle. Win+Space still offers all installed layouts. `-enable` saves the language selection, starts CCaps if needed, and adds its current executable path to Windows startup. Keep the executable in a permanent folder before enabling startup.
+
+Recommended settings for fullscreen gaming are the defaults shown above: `win_space_fallback: false`, `scroll_lock_indicator: false`, and `fullscreen_passthrough: true`. This avoids synthetic Win+Space and Scroll Lock input and lets the game receive the original Caps Lock press and release. It does not unload the keyboard hook or recognize windowed games. Set `fullscreen_passthrough` to `false` if you want layout switching in fullscreen applications too.
+
+The modified build has been tested successfully in normal windows and several Apex Legends matches on one Windows installation. This is a compatibility observation, not an assurance for every game or future anti-cheat update.
 
 - **Saving**: `ccaps -enable -de` saves the English/German preference
 - **Auto-loading**: The background process loads saved preferences at login and on `ccaps -start`
