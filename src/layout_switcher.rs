@@ -39,12 +39,12 @@ static REQUESTS: Mutex<Option<Sender<SwitchRequest>>> = Mutex::new(None);
 
 // Starts the worker thread. Results go to `main_thread` as WM_SWITCH_DONE; with console
 // diagnostics enabled (foreground mode) every switch is also printed.
-pub fn start(main_thread: u32) {
+pub fn start(main_thread: u32, fallback_enabled: bool) {
     let (sender, receiver) = mpsc::channel();
     if let Ok(mut requests) = REQUESTS.lock() {
         *requests = Some(sender);
     }
-    std::thread::spawn(move || run_worker(receiver, main_thread));
+    std::thread::spawn(move || run_worker(receiver, main_thread, fallback_enabled));
 }
 
 // Stops the worker thread once it finishes the current switch
@@ -66,10 +66,8 @@ pub fn request(target: usize) -> Option<u64> {
     Some(generation)
 }
 
-fn run_worker(receiver: Receiver<SwitchRequest>, main_thread: u32) {
-    let ops = SystemOps {
-        fallback_enabled: true,
-    };
+fn run_worker(receiver: Receiver<SwitchRequest>, main_thread: u32, fallback_enabled: bool) {
+    let ops = SystemOps { fallback_enabled };
     // Requests dropped for a newer one since the last reported switch (diagnostics)
     let mut skipped = 0;
     // Ends when stop() drops the sender
@@ -161,6 +159,7 @@ pub enum SwitchOutcome {
 
 // Everything the switch needs from the system. Layouts are HKL values as usize.
 pub trait SwitchOps {
+    fn fallback_enabled(&self) -> bool;
     // Identity of the foreground window, to notice when the user moves elsewhere
     fn foreground(&self) -> usize;
     // Layout of the foreground window's input thread, None if it can't be read
@@ -191,6 +190,9 @@ pub struct SystemOps {
 }
 
 impl SwitchOps for SystemOps {
+    fn fallback_enabled(&self) -> bool {
+        self.fallback_enabled
+    }
     fn foreground(&self) -> usize {
         unsafe { GetForegroundWindow() as usize }
     }
@@ -294,6 +296,7 @@ pub const REASON_FULL_CYCLE: &str = "not reached after a full Win+Space cycle";
 pub const REASON_FOCUS_MOVED: &str = "another window got focus";
 pub const REASON_PRESS_FAILED: &str = "Win+Space could not be sent";
 pub const REASON_PRESS_NO_EFFECT: &str = "Win+Space had no effect";
+pub const REASON_FALLBACK_DISABLED: &str = "Win+Space fallback disabled in configuration";
 
 // Switches the foreground window to `target`: posts the request, verifies it, and if the
 // window ignored it, presses Win+Space until the target is reached. `superseded` tells
@@ -316,6 +319,10 @@ pub fn perform_switch(
     };
     if current == target {
         return SwitchReport::new(Switched, None, 0);
+    }
+
+    if !ops.fallback_enabled() {
+        return done(Failed, REASON_FALLBACK_DISABLED);
     }
 
     // The window ignored the request (or hasn't applied it yet)
@@ -563,6 +570,7 @@ mod tests {
 
     // A foreground window with configurable behavior
     struct FakeWindow {
+        fallback_enabled: bool,
         layout: Cell<usize>,
         deaf: bool,
         rejects_request: bool,
@@ -583,6 +591,7 @@ mod tests {
     impl FakeWindow {
         fn new(layout: usize) -> Self {
             FakeWindow {
+                fallback_enabled: true,
                 layout: Cell::new(layout),
                 deaf: false,
                 rejects_request: false,
@@ -607,6 +616,9 @@ mod tests {
     }
 
     impl SwitchOps for FakeWindow {
+        fn fallback_enabled(&self) -> bool {
+            self.fallback_enabled
+        }
         fn foreground(&self) -> usize {
             match self.switch_window_after {
                 Some(n) if self.presses.get() >= n => 2,
@@ -698,6 +710,30 @@ mod tests {
         );
         assert_eq!(window.layout.get(), RU);
         assert_eq!(window.presses.get(), 3);
+    }
+
+    #[test]
+    fn test_disabled_fallback_never_injects_win_space() {
+        let window = FakeWindow {
+            fallback_enabled: false,
+            ..FakeWindow::deaf(US)
+        };
+        let report = perform_switch(&window, RU, &never);
+        assert_eq!(report.outcome, SwitchOutcome::Failed);
+        assert_eq!(report.reason, Some(REASON_FALLBACK_DISABLED));
+        assert_eq!(window.presses.get(), 0);
+        assert_eq!(window.layout.get(), US);
+    }
+
+    #[test]
+    fn test_disabled_fallback_still_allows_direct_switching() {
+        let window = FakeWindow {
+            fallback_enabled: false,
+            ..FakeWindow::new(US)
+        };
+        assert_eq!(perform_switch(&window, RU, &never), SwitchOutcome::Switched);
+        assert_eq!(window.presses.get(), 0);
+        assert_eq!(window.layout.get(), RU);
     }
 
     #[test]
