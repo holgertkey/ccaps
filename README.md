@@ -18,10 +18,10 @@ A lightweight Windows keyboard layout switcher that repurposes the Caps Lock key
 
 ## Installation
 
-### Option 1: Build this fork from source
+### Option 1: Install from crates.io (Recommended)
 
 ```bash
-cargo install --git https://github.com/ts33kr/ccaps --locked
+cargo install ccaps
 ```
 
 This will download, compile, and install the latest version of CCaps. The executable will be placed in your Cargo bin directory (usually `~/.cargo/bin/` or `%USERPROFILE%\.cargo\bin\`).
@@ -308,7 +308,7 @@ Shows:
 ### Build Steps
 
 ```bash
-git clone https://github.com/ts33kr/ccaps.git
+git clone https://github.com/holgertkey/ccaps.git
 cd ccaps
 cargo build --release
 ```
