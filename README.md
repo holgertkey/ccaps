@@ -170,7 +170,8 @@ Example configuration file:
   "country_codes": ["de"],
   "version": "0.11.0",
   "win_space_fallback": false,
-  "scroll_lock_indicator": false
+  "scroll_lock_indicator": false,
+  "fullscreen_passthrough": true
 }
 ```
 
@@ -182,8 +183,11 @@ Both optional features default to `false`, including when loading an older confi
 | --- | --- | --- |
 | `win_space_fallback` | `false` | Send Win+Space if a direct layout request is ignored |
 | `scroll_lock_indicator` | `false` | Update Scroll Lock at startup, after switches, and every 250 ms |
+| `fullscreen_passthrough` | `true` | Leave Caps Lock untouched in fullscreen and borderless fullscreen apps |
 
-These settings apply to foreground, background, and interactive runs. Language arguments override only the selected layouts. `-enable` preserves existing feature settings when saving languages. `-status` reports both settings. With fallback disabled, applications that ignore direct requests must be switched using Windows' language selector or Win+Space manually. This change does not add fullscreen exclusions or establish anti-cheat compatibility.
+These settings apply to foreground, background, and interactive runs. Language arguments override only the selected layouts. `-enable` preserves existing feature settings when saving languages. `-status` reports all settings. With fallback disabled, applications that ignore direct requests must be switched using Windows' language selector or Win+Space manually.
+
+Fullscreen passthrough checks the foreground window's client area against its monitor only when Caps Lock is pressed, without a watcher or polling timer. It also applies to fullscreen browsers and video players; ordinary maximized windows remain eligible for language switching. The press/release decision stays paired if focus changes while Caps Lock is held. Windowed games do not qualify. This does not establish anti-cheat compatibility.
 
 - **Saving**: `ccaps -enable -de` saves the English/German preference
 - **Auto-loading**: The background process loads saved preferences at login and on `ccaps -start`
