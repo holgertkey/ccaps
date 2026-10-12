@@ -214,6 +214,7 @@ fn handle_status() -> i32 {
     let (config_exists, config_path) = config::get_config_info();
     println!("Win+Space fallback: {}", config.win_space_fallback);
     println!("Scroll Lock indicator: {}", config.scroll_lock_indicator);
+    println!("Fullscreen passthrough: {}", config.fullscreen_passthrough);
     println!(
         "Configuration file: {}",
         if config_exists {
@@ -465,6 +466,7 @@ fn show_help() {
     println!("  Settings are saved by -enable and deleted by -disable");
     println!("  Configuration file: %localappdata%\\CCaps\\ccaps-config.json");
     println!("  win_space_fallback and scroll_lock_indicator default to false");
+    println!("  fullscreen_passthrough defaults to true");
     println!("  Edit JSON settings and restart CCaps to apply them");
     println!("  Use 'ccaps -status' to see all available language codes");
     println!();
