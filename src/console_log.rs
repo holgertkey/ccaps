@@ -60,6 +60,11 @@ pub fn header(
     lines.extend(
         [
             "",
+            if config.fullscreen_passthrough {
+                "Fullscreen apps     native Caps Lock input"
+            } else {
+                "Fullscreen apps     language switching enabled"
+            },
             "Shift + Caps Lock    toggle Caps Lock",
             if config.scroll_lock_indicator {
                 "Scroll Lock LED      OFF = English, ON = another layout"
