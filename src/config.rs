@@ -6,10 +6,26 @@ use std::path::PathBuf;
 const CONFIG_FILE_NAME: &str = "ccaps-config.json";
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
-#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Config {
     pub country_codes: Vec<String>,
     pub version: String,
+    #[serde(default)]
+    pub win_space_fallback: bool,
+    #[serde(default)]
+    pub scroll_lock_indicator: bool,
+    #[serde(default = "default_fullscreen_passthrough")]
+    pub fullscreen_passthrough: bool,
+}
+
+fn default_fullscreen_passthrough() -> bool {
+    true
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Config {
@@ -17,14 +33,15 @@ impl Config {
         Config {
             country_codes: Vec::new(),
             version: CURRENT_VERSION.to_string(),
+            win_space_fallback: false,
+            scroll_lock_indicator: false,
+            fullscreen_passthrough: true,
         }
     }
 
-    pub fn with_country_codes(country_codes: Vec<String>) -> Self {
-        Config {
-            country_codes,
-            version: CURRENT_VERSION.to_string(),
-        }
+    pub fn set_country_codes(&mut self, country_codes: Vec<String>) {
+        self.country_codes = country_codes;
+        self.version = CURRENT_VERSION.to_string();
     }
 }
 
@@ -126,5 +143,57 @@ pub fn get_config_info() -> (bool, Option<String>) {
             (exists, Some(path_str))
         }
         Err(_) => (false, None),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn legacy_config_disables_optional_input_features() {
+        let config: Config =
+            serde_json::from_str(r#"{"country_codes":["ru"],"version":"0.10.2"}"#).unwrap();
+        assert!(!config.win_space_fallback);
+        assert!(!config.scroll_lock_indicator);
+        assert!(config.fullscreen_passthrough);
+        assert_eq!(config.country_codes, ["ru"]);
+    }
+
+    #[test]
+    fn options_round_trip_and_survive_language_changes() {
+        for fallback in [false, true] {
+            for indicator in [false, true] {
+                let mut config = Config::new();
+                config.win_space_fallback = fallback;
+                config.scroll_lock_indicator = indicator;
+                config.set_country_codes(vec!["ru".into()]);
+                let json = serde_json::to_string(&config).unwrap();
+                let restored: Config = serde_json::from_str(&json).unwrap();
+                assert_eq!(restored.win_space_fallback, fallback);
+                assert_eq!(restored.scroll_lock_indicator, indicator);
+                assert_eq!(restored.country_codes, ["ru"]);
+            }
+        }
+    }
+
+    #[test]
+    fn fullscreen_setting_round_trips_and_survives_language_changes() {
+        for fullscreen in [false, true] {
+            let mut config = Config::new();
+            config.fullscreen_passthrough = fullscreen;
+            config.set_country_codes(vec!["ru".into()]);
+            let json = serde_json::to_string(&config).unwrap();
+            let restored: Config = serde_json::from_str(&json).unwrap();
+            assert_eq!(restored.fullscreen_passthrough, fullscreen);
+        }
+    }
+
+    #[test]
+    fn new_config_disables_optional_input_features() {
+        let config = Config::new();
+        assert!(!config.win_space_fallback);
+        assert!(!config.scroll_lock_indicator);
+        assert!(config.fullscreen_passthrough);
     }
 }

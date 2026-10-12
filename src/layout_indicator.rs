@@ -4,13 +4,19 @@ use crate::layout_manager;
 use crate::layout_switcher;
 use std::mem;
 use std::ptr;
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use winapi::shared::basetsd::UINT_PTR;
 use winapi::shared::minwindef::{DWORD, HKL, UINT};
 use winapi::shared::windef::HWND;
 use winapi::um::winuser::*;
+
+static ENABLED: AtomicBool = AtomicBool::new(false);
+
+pub fn configure(enabled: bool) {
+    ENABLED.store(enabled, Ordering::SeqCst);
+}
 
 // Function to check if given layout is English
 unsafe fn is_english_layout_hkl(layout: HKL) -> bool {
@@ -104,6 +110,9 @@ const SYNC_TOLERANCE_MS: u32 = 100;
 
 // Sets Scroll Lock to `enabled` and remembers it as the last applied state
 unsafe fn apply_indicator(enabled: bool) {
+    if !ENABLED.load(Ordering::SeqCst) {
+        return;
+    }
     unsafe {
         set_scroll_lock_state(enabled);
         LAST_INDICATOR.store(
@@ -138,6 +147,9 @@ fn sync_action(last_applied: u8, wanted_on: Option<bool>, in_grace: bool) -> Opt
 // Called when CCaps sends a switch request: the periodic sync leaves the indicator alone
 // for SWITCH_GRACE while the foreground window applies it
 pub fn begin_switch() {
+    if !ENABLED.load(Ordering::SeqCst) {
+        return;
+    }
     if let Ok(mut last_switch) = LAST_SWITCH.lock() {
         *last_switch = Some(Instant::now());
     }
@@ -147,6 +159,9 @@ pub fn begin_switch() {
 // (None if unreadable): the indicator shows the layout the window actually has, not the
 // one CCaps asked for
 pub unsafe fn show_switched_layout(layout: Option<usize>) {
+    if !ENABLED.load(Ordering::SeqCst) {
+        return;
+    }
     unsafe {
         begin_switch();
         if let Some(layout) = layout {
@@ -160,6 +175,9 @@ pub unsafe fn show_switched_layout(layout: Option<usize>) {
 // Public function to set the Scroll Lock indicator at startup. Without a foreground
 // window (e.g. right after login) uses the default input language.
 pub unsafe fn update_layout_indicator() {
+    if !ENABLED.load(Ordering::SeqCst) {
+        return;
+    }
     unsafe {
         // English layout: Scroll Lock OFF
         // Non-English layout: Scroll Lock ON
@@ -202,6 +220,9 @@ unsafe extern "system" fn sync_timer_proc(_hwnd: HWND, _msg: UINT, _id: UINT_PTR
 // Public function to start keeping the indicator in sync. Uses a thread timer, so it
 // must be called on the thread that runs the message loop.
 pub unsafe fn start_indicator_sync() {
+    if !ENABLED.load(Ordering::SeqCst) {
+        return;
+    }
     unsafe {
         let timer = SetCoalescableTimer(
             ptr::null_mut(),

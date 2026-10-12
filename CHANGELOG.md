@@ -1,5 +1,14 @@
 # Changelog
 
+### Unreleased
+- Add `win_space_fallback` and `scroll_lock_indicator` JSON options, both disabled by default, including for older settings files that omit the fields.
+- Add `fullscreen_passthrough`, enabled by default. Caps Lock is passed through unchanged in fullscreen and borderless fullscreen applications. Detection runs on the first keydown; held-key repeats and release retain the same route if focus changes.
+- Disable the Scroll Lock synchronization timer and indicator key events when its option is off.
+- Preserve feature options when `-enable` saves a new language selection; report options in status and foreground diagnostics.
+- Use per-monitor DPI awareness for fullscreen detection on scaled displays; switch layouts only once per held Caps Lock press.
+- Add configuration compatibility, round-trip, direct-only switching, and fullscreen geometry tests.
+- Document English/Russian filtering, Ukrainian selection through Windows, startup, and gaming limitations.
+
 ### v0.11.0
 - 🔍 `ccaps -run` prints diagnostics: one line per Caps Lock press with the time, layouts, outcome and its reason (e.g. switched with Win+Space, applied late, modifier key held), duration and the foreground application, plus a line whenever the layout changes without CCaps. The startup header is shorter: each layout is listed once, with the current one marked, followed by the keys and what the log lines mean
 - 🔄 **Commands renamed** (systemctl-like: persistent state vs. the running process):

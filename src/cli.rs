@@ -212,6 +212,9 @@ fn handle_status() -> i32 {
     // Show configuration info
     let config = config::load_config();
     let (config_exists, config_path) = config::get_config_info();
+    println!("Win+Space fallback: {}", config.win_space_fallback);
+    println!("Scroll Lock indicator: {}", config.scroll_lock_indicator);
+    println!("Fullscreen passthrough: {}", config.fullscreen_passthrough);
     println!(
         "Configuration file: {}",
         if config_exists {
@@ -287,7 +290,8 @@ fn handle_enable(country_codes: &[String]) -> i32 {
     }
 
     // Save configuration
-    let config = config::Config::with_country_codes(country_codes.to_vec());
+    let mut config = config::load_config();
+    config.set_country_codes(country_codes.to_vec());
     if let Err(e) = config::save_config(&config) {
         eprintln!("Warning: Could not save configuration: {}", e);
     } else {
@@ -456,11 +460,14 @@ fn show_help() {
     println!("Key bindings:");
     println!("  Caps Lock              - Switch keyboard layout");
     println!("  Shift + Caps Lock      - Toggle Caps Lock");
-    println!("  Scroll Lock indicator  - Shows current layout (OFF=English, ON=Non-English)");
+    println!("  Scroll Lock indicator  - Optional; disabled by default");
     println!();
     println!("Configuration:");
     println!("  Settings are saved by -enable and deleted by -disable");
     println!("  Configuration file: %localappdata%\\CCaps\\ccaps-config.json");
+    println!("  win_space_fallback and scroll_lock_indicator default to false");
+    println!("  fullscreen_passthrough defaults to true");
+    println!("  Edit JSON settings and restart CCaps to apply them");
     println!("  Use 'ccaps -status' to see all available language codes");
     println!();
 }

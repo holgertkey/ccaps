@@ -27,6 +27,10 @@ use winapi::um::winuser::*;
 static MUTEX_HANDLE: AtomicPtr<winapi::ctypes::c_void> = AtomicPtr::new(ptr::null_mut());
 
 fn main() {
+    // Keep fullscreen client and monitor bounds in physical pixels on scaled displays.
+    unsafe {
+        SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+    }
     // Parse command line arguments
     let command = parse_args();
 
@@ -100,6 +104,9 @@ fn main() {
 }
 
 fn run_main_loop(country_codes: Vec<String>) {
+    let config = config::load_config();
+    layout_indicator::configure(config.scroll_lock_indicator);
+    keyboard_hook::configure_fullscreen_passthrough(config.fullscreen_passthrough);
     // Create mutex to prevent multiple instances
     let mutex = create_mutex();
     if mutex.is_null() {
@@ -148,7 +155,7 @@ fn run_main_loop(country_codes: Vec<String>) {
                 layout_indicator::ensure_caps_lock_off();
 
                 if !is_background {
-                    print_foreground_header();
+                    print_foreground_header(&config);
                 }
             }
             Err(e) => {
@@ -174,7 +181,7 @@ fn run_main_loop(country_codes: Vec<String>) {
         }
 
         // Switching runs on a worker thread that reports back to this one
-        layout_switcher::start(GetCurrentThreadId());
+        layout_switcher::start(GetCurrentThreadId(), config.win_space_fallback);
 
         // Create hidden window for message handling
         create_message_window();
@@ -217,7 +224,7 @@ fn run_main_loop(country_codes: Vec<String>) {
 }
 
 // Header shown once when CCaps runs in the foreground: layouts, keys, log legend
-fn print_foreground_header() {
+fn print_foreground_header(config: &config::Config) {
     let layouts = keyboard_hook::selected_layouts();
     let current = layout_manager::get_current_layout()
         .and_then(|current| layouts.iter().position(|l| l.hkl == current.hkl));
@@ -228,7 +235,7 @@ fn print_foreground_header() {
     println!();
     println!(
         "{}",
-        console_log::header(env!("CARGO_PKG_VERSION"), &layouts, current)
+        console_log::header(env!("CARGO_PKG_VERSION"), &layouts, current, config)
     );
 }
 

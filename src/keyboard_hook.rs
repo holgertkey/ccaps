@@ -3,6 +3,7 @@ use crate::layout_manager::{self, LayoutInfo};
 use crate::layout_switcher;
 use std::mem;
 use std::ptr;
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use winapi::shared::minwindef::*;
@@ -85,6 +86,67 @@ const LLKHF_INJECTED: u32 = 0x00000010;
 // from external injected events (e.g., from other programs during OS startup).
 pub const CCAPS_EXTRA_INFO: usize = 0xCCA95;
 
+// Remember the down-event decision until release, even if focus changes while held.
+static CAPS_ROUTE: AtomicU8 = AtomicU8::new(0);
+static FULLSCREEN_PASSTHROUGH: AtomicBool = AtomicBool::new(true);
+
+pub fn configure_fullscreen_passthrough(enabled: bool) {
+    FULLSCREEN_PASSTHROUGH.store(enabled, Ordering::SeqCst);
+}
+
+fn covers_monitor(client: [i32; 4], monitor: [i32; 4]) -> bool {
+    client[0] <= monitor[0] + 2
+        && client[1] <= monitor[1] + 2
+        && client[2] >= monitor[2] - 2
+        && client[3] >= monitor[3] - 2
+}
+
+fn foreground_is_fullscreen() -> bool {
+    unsafe {
+        let window = GetForegroundWindow();
+        if window.is_null() {
+            return true;
+        }
+        let mut class = [0u16; 64];
+        let len = GetClassNameW(window, class.as_mut_ptr(), class.len() as i32);
+        let class = String::from_utf16_lossy(&class[..len.max(0) as usize]);
+        if matches!(
+            class.as_str(),
+            "Progman" | "WorkerW" | "Shell_TrayWnd" | "Shell_SecondaryTrayWnd"
+        ) {
+            return false;
+        }
+        let mut client = mem::zeroed();
+        if GetClientRect(window, &mut client) == 0 {
+            return true;
+        }
+        let mut origin = winapi::shared::windef::POINT { x: 0, y: 0 };
+        if ClientToScreen(window, &mut origin) == 0 {
+            return true;
+        }
+        let monitor = MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST);
+        let mut info: MONITORINFO = mem::zeroed();
+        info.cbSize = mem::size_of::<MONITORINFO>() as u32;
+        if GetMonitorInfoW(monitor, &mut info) == 0 {
+            return true;
+        }
+        covers_monitor(
+            [
+                origin.x,
+                origin.y,
+                origin.x + client.right,
+                origin.y + client.bottom,
+            ],
+            [
+                info.rcMonitor.left,
+                info.rcMonitor.top,
+                info.rcMonitor.right,
+                info.rcMonitor.bottom,
+            ],
+        )
+    }
+}
+
 // Callback function for handling key presses
 unsafe extern "system" fn low_level_keyboard_proc(
     n_code: i32,
@@ -111,6 +173,27 @@ unsafe extern "system" fn low_level_keyboard_proc(
                 // WM_SYSKEYDOWN occurs when Alt is held or when system thinks Alt is held
                 // (which can happen during Windows startup due to key state desynchronization)
                 if w_param == WM_KEYDOWN as usize || w_param == WM_SYSKEYDOWN as usize {
+                    let existing = CAPS_ROUTE.load(Ordering::SeqCst);
+                    let route = if existing == 0 {
+                        let route = if FULLSCREEN_PASSTHROUGH.load(Ordering::SeqCst)
+                            && foreground_is_fullscreen()
+                        {
+                            2
+                        } else {
+                            1
+                        };
+                        CAPS_ROUTE.store(route, Ordering::SeqCst);
+                        route
+                    } else {
+                        existing
+                    };
+                    if route == 2 {
+                        return CallNextHookEx(HOOK, n_code, w_param, l_param);
+                    }
+                    // Suppress autorepeat so a held key switches only once.
+                    if existing != 0 {
+                        return 1;
+                    }
                     // Check real-time Shift key state using GetAsyncKeyState
                     // This prevents desynchronization issues when Shift state changes during window switching
                     let shift_state = GetAsyncKeyState(VK_SHIFT);
@@ -121,6 +204,7 @@ unsafe extern "system" fn low_level_keyboard_proc(
                         toggle_caps_lock();
                     } else {
                         // Caps Lock only: switch keyboard layout
+                        layout_indicator::ensure_caps_lock_off();
                         switch_keyboard_layout();
                     }
 
@@ -131,6 +215,9 @@ unsafe extern "system" fn low_level_keyboard_proc(
                 // Also block Caps Lock key release to prevent any residual toggle
                 // This ensures complete blocking of CapsLock functionality
                 if w_param == WM_KEYUP as usize || w_param == WM_SYSKEYUP as usize {
+                    if CAPS_ROUTE.swap(0, Ordering::SeqCst) == 2 {
+                        return CallNextHookEx(HOOK, n_code, w_param, l_param);
+                    }
                     return 1;
                 }
 
@@ -307,6 +394,21 @@ pub fn selected_layouts() -> Vec<LayoutInfo> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fullscreen_uses_entire_monitor_not_work_area() {
+        let monitor = [0, 0, 3840, 2160];
+        assert!(covers_monitor([0, 0, 3840, 2160], monitor));
+        assert!(!covers_monitor([0, 0, 3840, 2100], monitor));
+        assert!(!covers_monitor([100, 100, 800, 600], monitor));
+    }
+
+    #[test]
+    fn fullscreen_supports_negative_monitor_coordinates_and_tolerance() {
+        assert!(covers_monitor([-3840, 0, 0, 2160], [-3840, 0, 0, 2160]));
+        assert!(covers_monitor([-3839, 1, -1, 2159], [-3840, 0, 0, 2160]));
+        assert!(!covers_monitor([-3830, 10, -10, 2150], [-3840, 0, 0, 2160]));
+    }
 
     #[test]
     fn test_next_layout_follows_current_layout() {
