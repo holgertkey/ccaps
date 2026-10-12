@@ -7,8 +7,8 @@ A lightweight Windows keyboard layout switcher that repurposes the Caps Lock key
 - **Caps Lock → Layout Switch**: Press Caps Lock to cycle through keyboard layouts
 - **Country Code Filtering**: Choose specific layouts to switch between (e.g., English ↔ German)
 - **Shift + Caps Lock → Caps Lock**: Hold Shift and press Caps Lock to toggle Caps Lock functionality
-- **Visual Indicator**: Scroll Lock LED shows current layout (OFF = English, ON = Non-English)
-- **Verified Switching**: Checks that the window actually switched, and falls back to Win+Space in applications that ignore the layout request
+- **Optional Visual Indicator**: Scroll Lock LED shows the current layout when enabled; disabled by default
+- **Verified Switching**: Checks that the window actually switched; optional Win+Space fallback is disabled by default
 - **Background Mode**: Runs silently in the background
 - **Auto-startup**: Automatically starts with Windows
 - **Configuration Persistence**: Remembers your layout preferences
@@ -20,7 +20,7 @@ A lightweight Windows keyboard layout switcher that repurposes the Caps Lock key
 ### Option 1: Install from crates.io (Recommended)
 
 ```bash
-cargo install ccaps
+cargo install --git https://github.com/ts33kr/ccaps --locked
 ```
 
 This will download, compile, and install the latest version of CCaps. The executable will be placed in your Cargo bin directory (usually `~/.cargo/bin/` or `%USERPROFILE%\.cargo\bin\`).
@@ -75,7 +75,7 @@ Use `ccaps -status` to see all available language codes for your system. Common 
 
 ### Visual Indicator
 
-The Scroll Lock LED on your keyboard serves as a layout indicator:
+The Scroll Lock LED can serve as a layout indicator when `scroll_lock_indicator` is set to `true`. It is disabled by default, with no indicator timer or Scroll Lock key events:
 - **OFF** (🔴) = English layout active
 - **ON** (🟢) = Non-English layout active
 
@@ -168,11 +168,22 @@ Example configuration file:
 ```json
 {
   "country_codes": ["de"],
-  "version": "0.11.0"
+  "version": "0.11.0",
+  "win_space_fallback": false,
+  "scroll_lock_indicator": false
 }
 ```
 
 ### Configuration Management
+
+Both optional features default to `false`, including when loading an older configuration without these fields. Edit `%LOCALAPPDATA%\CCaps\ccaps-config.json`, then run `ccaps -stop` followed by `ccaps -start` to apply changes:
+
+| Setting | Default | When enabled |
+| --- | --- | --- |
+| `win_space_fallback` | `false` | Send Win+Space if a direct layout request is ignored |
+| `scroll_lock_indicator` | `false` | Update Scroll Lock at startup, after switches, and every 250 ms |
+
+These settings apply to foreground, background, and interactive runs. Language arguments override only the selected layouts. `-enable` preserves existing feature settings when saving languages. `-status` reports both settings. With fallback disabled, applications that ignore direct requests must be switched using Windows' language selector or Win+Space manually. This change does not add fullscreen exclusions or establish anti-cheat compatibility.
 
 - **Saving**: `ccaps -enable -de` saves the English/German preference
 - **Auto-loading**: The background process loads saved preferences at login and on `ccaps -start`
@@ -188,14 +199,14 @@ CCaps uses Windows low-level keyboard hooks to intercept Caps Lock key presses a
 2. Intercepts Caps Lock key events
 3. Cycles through selected keyboard layouts (filtered by country codes)
 4. Asks the focused window to switch its layout, then checks that it actually did
-5. If the window ignored the request, switches with Win+Space instead (see below)
-6. Updates the Scroll Lock indicator from the layout the window actually has
+5. If explicitly enabled, falls back to Win+Space when the window ignores the request
+6. If explicitly enabled, updates the Scroll Lock indicator from the actual layout
 7. Blocks the default Caps Lock behavior (unless Shift is held)
 8. Saves and restores layout preferences automatically
 
 ### Applications That Ignore the Layout Request
 
-Some applications don't handle the standard layout change request, so Caps Lock used to do nothing in them. CCaps now checks the layout after every switch. If it hasn't changed within 150 ms, CCaps presses **Win+Space** (the Windows layout switch shortcut) and re-reads the layout after each press until the target layout is reached.
+Some applications don't handle the standard layout change request. CCaps checks the layout after every switch. By default, it reports a failed direct switch without injecting Win+Space. If `win_space_fallback` is explicitly enabled and the layout hasn't changed within 150 ms, CCaps presses **Win+Space** and re-reads the layout after each press until the target layout is reached.
 
 - In such applications a switch takes about 170–300 ms (depending on how many Win+Space presses are needed) instead of a few milliseconds
 - Win+Space cycles through **all** installed layouts, so CCaps may press it several times to reach the next selected one; you may briefly see the intermediate layouts
@@ -278,7 +289,7 @@ Shows:
 ### Build Steps
 
 ```bash
-git clone https://github.com/holgertkey/ccaps.git
+git clone https://github.com/ts33kr/ccaps.git
 cd ccaps
 cargo build --release
 ```
@@ -329,7 +340,7 @@ Each line shows the time, the layouts, the outcome with its reason, how long the
 
 - **Windows running as administrator**: when an elevated window (e.g. `cmd` or `regedit` started "as administrator") has focus, Windows doesn't pass keyboard input to CCaps, which runs with normal rights. In such windows Caps Lock works as a regular Caps Lock and doesn't switch the layout. Switch the layout with Win+Space there.
 - **Terminals that control Scroll Lock (mintty: Cygwin, MSYS2, Git Bash)**: mintty resets the Scroll Lock LED itself, so the indicator doesn't reflect the layout while a mintty window has focus. Layout switching works normally.
-- **Applications that ignore the layout request**: switched with Win+Space (see [Applications That Ignore the Layout Request](#applications-that-ignore-the-layout-request)), which is slightly slower.
+- **Applications that ignore the layout request**: require manual layout selection by default. Optional Win+Space fallback can be enabled (see [Applications That Ignore the Layout Request](#applications-that-ignore-the-layout-request)).
 
 ## Troubleshooting
 
@@ -338,7 +349,8 @@ The window is probably running as administrator; see [Known Limitations](#known-
 
 ### The Scroll Lock indicator doesn't match the layout
 - In mintty-based terminals (Cygwin, MSYS2, Git Bash) this is expected; see [Known Limitations](#known-limitations)
-- Elsewhere the indicator follows the actual layout within a quarter of a second, also after switching with Win+Space or the mouse
+- First check that `scroll_lock_indicator` is enabled; it defaults to `false`
+- When enabled, the indicator follows the actual layout within a quarter of a second, also after switching with Win+Space or the mouse
 
 ### Invalid Country Code Error
 ```bash
