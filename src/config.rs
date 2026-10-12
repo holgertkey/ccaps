@@ -6,7 +6,7 @@ use std::path::PathBuf;
 const CONFIG_FILE_NAME: &str = "ccaps-config.json";
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
-#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Config {
     pub country_codes: Vec<String>,
     pub version: String,
@@ -14,6 +14,18 @@ pub struct Config {
     pub win_space_fallback: bool,
     #[serde(default)]
     pub scroll_lock_indicator: bool,
+    #[serde(default = "default_fullscreen_passthrough")]
+    pub fullscreen_passthrough: bool,
+}
+
+fn default_fullscreen_passthrough() -> bool {
+    true
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Config {
@@ -23,6 +35,7 @@ impl Config {
             version: CURRENT_VERSION.to_string(),
             win_space_fallback: false,
             scroll_lock_indicator: false,
+            fullscreen_passthrough: true,
         }
     }
 
@@ -143,6 +156,7 @@ mod tests {
             serde_json::from_str(r#"{"country_codes":["ru"],"version":"0.10.2"}"#).unwrap();
         assert!(!config.win_space_fallback);
         assert!(!config.scroll_lock_indicator);
+        assert!(config.fullscreen_passthrough);
         assert_eq!(config.country_codes, ["ru"]);
     }
 
@@ -164,9 +178,22 @@ mod tests {
     }
 
     #[test]
+    fn fullscreen_setting_round_trips_and_survives_language_changes() {
+        for fullscreen in [false, true] {
+            let mut config = Config::new();
+            config.fullscreen_passthrough = fullscreen;
+            config.set_country_codes(vec!["ru".into()]);
+            let json = serde_json::to_string(&config).unwrap();
+            let restored: Config = serde_json::from_str(&json).unwrap();
+            assert_eq!(restored.fullscreen_passthrough, fullscreen);
+        }
+    }
+
+    #[test]
     fn new_config_disables_optional_input_features() {
         let config = Config::new();
         assert!(!config.win_space_fallback);
         assert!(!config.scroll_lock_indicator);
+        assert!(config.fullscreen_passthrough);
     }
 }
