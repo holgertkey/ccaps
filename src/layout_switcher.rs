@@ -838,6 +838,9 @@ mod tests {
     struct FakeInstalled<'a>(&'a FakeWindow, usize);
 
     impl SwitchOps for FakeInstalled<'_> {
+        fn fallback_enabled(&self) -> bool {
+            self.0.fallback_enabled()
+        }
         fn foreground(&self) -> usize {
             self.0.foreground()
         }
