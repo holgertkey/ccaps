@@ -27,6 +27,10 @@ use winapi::um::winuser::*;
 static MUTEX_HANDLE: AtomicPtr<winapi::ctypes::c_void> = AtomicPtr::new(ptr::null_mut());
 
 fn main() {
+    // Keep fullscreen client and monitor bounds in physical pixels on scaled displays.
+    unsafe {
+        SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+    }
     // Parse command line arguments
     let command = parse_args();
 
@@ -102,6 +106,7 @@ fn main() {
 fn run_main_loop(country_codes: Vec<String>) {
     let config = config::load_config();
     layout_indicator::configure(config.scroll_lock_indicator);
+    keyboard_hook::configure_fullscreen_passthrough(config.fullscreen_passthrough);
     // Create mutex to prevent multiple instances
     let mutex = create_mutex();
     if mutex.is_null() {
