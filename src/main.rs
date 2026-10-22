@@ -7,7 +7,7 @@ mod layout_indicator;
 mod layout_manager;
 mod layout_switcher;
 
-use cli::{create_mutex, execute_command, parse_args, should_run_in_background, CliCommand};
+use cli::{create_mutex, execute_command, parse_args, should_run_in_background, CliCommand, ParsedArgs};
 use interactive_menu::show_interactive_menu;
 use keyboard_hook::{initialize_layout_switching, install_hook, uninstall_hook};
 use std::ffi::OsString;
@@ -28,7 +28,18 @@ static MUTEX_HANDLE: AtomicPtr<winapi::ctypes::c_void> = AtomicPtr::new(ptr::nul
 
 fn main() {
     // Parse command line arguments
-    let command = parse_args();
+    let ParsedArgs { command, led_mask } = match parse_args() {
+        Ok(parsed) => parsed,
+        Err(e) => {
+            eprintln!("Error: {}", e);
+            std::process::exit(1);
+        }
+    };
+
+    // Apply LED mask if specified (0 = not given, keep default)
+    if led_mask != 0 {
+        layout_indicator::set_active_leds(led_mask);
+    }
 
     // Handle CLI commands that don't require running the main loop
     match command {
@@ -179,7 +190,7 @@ fn run_main_loop(country_codes: Vec<String>) {
         // Create hidden window for message handling
         create_message_window();
 
-        // Keep Scroll Lock in step with the foreground window's layout (timer on this thread)
+        // Keep the LED indicator in step with the foreground window's layout (timer on this thread)
         layout_indicator::start_indicator_sync();
 
         // Main message processing loop
@@ -245,6 +256,7 @@ fn cleanup_and_exit() {
     unsafe {
         uninstall_hook();
         layout_switcher::stop();
+        layout_indicator::close_kbd_device();
         let mutex = MUTEX_HANDLE.swap(ptr::null_mut(), Ordering::SeqCst);
         if !mutex.is_null() {
             CloseHandle(mutex);

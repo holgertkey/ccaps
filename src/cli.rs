@@ -1,4 +1,5 @@
 use crate::config;
+use crate::layout_indicator;
 use crate::layout_manager;
 use std::env;
 use std::ffi::{OsStr, OsString};
@@ -51,19 +52,32 @@ pub fn quit_removed_hint(prefix: &str) -> String {
     )
 }
 
-pub fn parse_args() -> CliCommand {
+/// Parsed command line: the command to run plus the LED indicator mask.
+#[derive(Debug)]
+pub struct ParsedArgs {
+    pub command: CliCommand,
+    /// Bitfield of `layout_indicator::LED_*` flags, 0 when `-led` was not given
+    pub led_mask: u8,
+}
+
+pub fn parse_args() -> Result<ParsedArgs, String> {
     let args: Vec<String> = env::args().skip(1).collect();
     parse_command(&args)
 }
 
 // Parses the command line without the program name. No arguments: interactive menu.
-fn parse_command(args: &[String]) -> CliCommand {
-    let Some(command) = args.first() else {
-        return CliCommand::Menu;
-    };
-    let country_codes = || parse_country_codes(&args[1..]);
+fn parse_command(args: &[String]) -> Result<ParsedArgs, String> {
+    let (led_mask, remaining) = extract_led_option(args)?;
 
-    match command.as_str() {
+    let Some(command) = remaining.first() else {
+        return Ok(ParsedArgs {
+            command: CliCommand::Menu,
+            led_mask,
+        });
+    };
+    let country_codes = || parse_country_codes(&remaining[1..]);
+
+    let command = match command.as_str() {
         "-enable" => CliCommand::Enable(country_codes()),
         "-disable" => CliCommand::Disable,
         "-start" => CliCommand::Start(country_codes()),
@@ -75,7 +89,54 @@ fn parse_command(args: &[String]) -> CliCommand {
         "-help" | "--help" | "-h" | "/?" => CliCommand::Help,
         "-v" | "--version" => CliCommand::Version,
         _ => CliCommand::Unknown(command.clone()),
+    };
+    Ok(ParsedArgs { command, led_mask })
+}
+
+// Extract the `-led <value>` option from the argument list. Returns the LED mask
+// (0 = not specified, use default) and the remaining arguments. The `-led` option
+// can appear anywhere; its value is a comma-separated list of: scroll, num, caps.
+fn extract_led_option(args: &[String]) -> Result<(u8, Vec<String>), String> {
+    let mut mask: u8 = 0;
+    let mut remaining = Vec::new();
+    let mut i = 0;
+    while i < args.len() {
+        if args[i] == "-led" {
+            if let Some(value) = args.get(i + 1) {
+                mask = parse_led_value(value)?;
+                i += 2;
+                continue;
+            } else {
+                return Err("-led requires a value (scroll, num, caps)".to_string());
+            }
+        }
+        remaining.push(args[i].clone());
+        i += 1;
     }
+    Ok((mask, remaining))
+}
+
+/// Parse a comma-separated LED specifier like "scroll,num" into a bitfield.
+fn parse_led_value(value: &str) -> Result<u8, String> {
+    let mut mask: u8 = 0;
+    for part in value.split(',') {
+        let token = part.trim().to_lowercase();
+        match token.as_str() {
+            "scroll" => mask |= layout_indicator::LED_SCROLL,
+            "num" => mask |= layout_indicator::LED_NUM,
+            "caps" => mask |= layout_indicator::LED_CAPS,
+            _ => {
+                return Err(format!(
+                    "invalid -led value '{}', expected comma-separated list of: scroll, num, caps",
+                    value
+                ))
+            }
+        }
+    }
+    if mask == 0 {
+        return Err("-led requires a value (scroll, num, caps)".to_string());
+    }
+    Ok(mask)
 }
 
 // Country codes from arguments like "-de -fr" (the leading dash is removed). Arguments
@@ -453,10 +514,17 @@ fn show_help() {
     println!();
     println!("Note: unlike 'systemctl enable', '-enable' also starts CCaps right away.");
     println!();
+    println!("  ccaps -run -led num -de  - Run with Num Lock as the layout indicator");
+    println!("  ccaps -led scroll,caps  - Use both Scroll Lock and Caps Lock LEDs");
+    println!();
     println!("Key bindings:");
     println!("  Caps Lock              - Switch keyboard layout");
     println!("  Shift + Caps Lock      - Toggle Caps Lock");
-    println!("  Scroll Lock indicator  - Shows current layout (OFF=English, ON=Non-English)");
+    println!("  LED indicator          - Shows current layout (OFF=English, ON=Non-English)");
+    println!();
+    println!("Options:");
+    println!("  -led <leds>            - LED indicator: scroll, num, caps (comma-separated)");
+    println!("                           No indicator by default. Example: -led scroll");
     println!();
     println!("Configuration:");
     println!("  Settings are saved by -enable and deleted by -disable");
@@ -671,13 +739,31 @@ fn remove_from_startup() -> Result<(), String> {
 }
 
 // Command line of the background process, as used for the Run key and for -start/-enable:
-// the quoted executable path, "--background" and the country codes
+// the quoted executable path, "--background", optional "-led" and the country codes
 fn background_command_line(exe_path: &Path, country_codes: &[String]) -> String {
     let mut command_line = format!("\"{}\" --background", exe_path.display());
+    let led_mask = layout_indicator::ACTIVE_LEDS.load(std::sync::atomic::Ordering::SeqCst);
+    if led_mask != 0 {
+        command_line.push_str(&format!(" -led {}", led_mask_to_string(led_mask)));
+    }
     for code in country_codes {
         command_line.push_str(&format!(" -{}", code));
     }
     command_line
+}
+
+fn led_mask_to_string(mask: u8) -> String {
+    let mut parts = Vec::new();
+    if mask & layout_indicator::LED_SCROLL != 0 {
+        parts.push("scroll");
+    }
+    if mask & layout_indicator::LED_NUM != 0 {
+        parts.push("num");
+    }
+    if mask & layout_indicator::LED_CAPS != 0 {
+        parts.push("caps");
+    }
+    parts.join(",")
 }
 
 // Starts the background process detached from the caller.
@@ -852,7 +938,18 @@ mod tests {
 
     fn parse(args: &[&str]) -> CliCommand {
         let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
-        parse_command(&args)
+        parse_command(&args).unwrap().command
+    }
+
+    fn parse_with_led(args: &[&str]) -> (CliCommand, u8) {
+        let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
+        let parsed = parse_command(&args).unwrap();
+        (parsed.command, parsed.led_mask)
+    }
+
+    fn parse_err(args: &[&str]) -> String {
+        let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
+        parse_command(&args).unwrap_err()
     }
 
     fn codes(codes: &[&str]) -> Vec<String> {
@@ -1031,7 +1128,110 @@ mod tests {
             .split_whitespace()
             .map(String::from)
             .collect();
-        assert_eq!(parse_command(&args), CliCommand::Background(codes(&["ru"])));
+        assert_eq!(
+            parse_command(&args).unwrap().command,
+            CliCommand::Background(codes(&["ru"]))
+        );
+    }
+
+    #[test]
+    fn test_led_option_scroll() {
+        let (cmd, mask) = parse_with_led(&["-run", "-led", "scroll", "-de"]);
+        assert_eq!(cmd, CliCommand::Run(codes(&["de"])));
+        assert_eq!(mask, layout_indicator::LED_SCROLL);
+    }
+
+    #[test]
+    fn test_led_option_num() {
+        let (cmd, mask) = parse_with_led(&["-led", "num", "-run", "-de"]);
+        assert_eq!(cmd, CliCommand::Run(codes(&["de"])));
+        assert_eq!(mask, layout_indicator::LED_NUM);
+    }
+
+    #[test]
+    fn test_led_option_caps() {
+        let (_, mask) = parse_with_led(&["-run", "-led", "caps"]);
+        assert_eq!(mask, layout_indicator::LED_CAPS);
+    }
+
+    #[test]
+    fn test_led_option_multiple() {
+        let (_, mask) = parse_with_led(&["-run", "-led", "scroll,num,caps"]);
+        assert_eq!(
+            mask,
+            layout_indicator::LED_SCROLL | layout_indicator::LED_NUM | layout_indicator::LED_CAPS
+        );
+    }
+
+    #[test]
+    fn test_led_option_two_leds() {
+        let (_, mask) = parse_with_led(&["-run", "-led", "num,caps"]);
+        assert_eq!(mask, layout_indicator::LED_NUM | layout_indicator::LED_CAPS);
+    }
+
+    #[test]
+    fn test_led_option_not_specified() {
+        let (_, mask) = parse_with_led(&["-run", "-de"]);
+        assert_eq!(mask, 0);
+    }
+
+    #[test]
+    fn test_led_option_invalid_value() {
+        let err = parse_err(&["-run", "-led", "invalid"]);
+        assert!(err.contains("invalid -led value"), "unexpected error: {}", err);
+    }
+
+    #[test]
+    fn test_led_option_missing_value() {
+        let err = parse_err(&["-run", "-led"]);
+        assert!(err.contains("-led requires a value"), "unexpected error: {}", err);
+    }
+
+    #[test]
+    fn test_led_option_case_insensitive() {
+        let (_, mask) = parse_with_led(&["-run", "-led", "Scroll,NUM"]);
+        assert_eq!(mask, layout_indicator::LED_SCROLL | layout_indicator::LED_NUM);
+    }
+
+    #[test]
+    fn test_led_mask_to_string_single() {
+        assert_eq!(led_mask_to_string(layout_indicator::LED_SCROLL), "scroll");
+        assert_eq!(led_mask_to_string(layout_indicator::LED_NUM), "num");
+        assert_eq!(led_mask_to_string(layout_indicator::LED_CAPS), "caps");
+    }
+
+    #[test]
+    fn test_led_mask_to_string_multiple() {
+        assert_eq!(
+            led_mask_to_string(layout_indicator::LED_SCROLL | layout_indicator::LED_NUM),
+            "scroll,num"
+        );
+        assert_eq!(
+            led_mask_to_string(
+                layout_indicator::LED_SCROLL | layout_indicator::LED_NUM | layout_indicator::LED_CAPS
+            ),
+            "scroll,num,caps"
+        );
+    }
+
+    #[test]
+    fn test_led_option_preserved_in_background_command_line() {
+        // When LEDs are active, background_command_line includes -led
+        layout_indicator::set_active_leds(layout_indicator::LED_NUM);
+        let exe = Path::new(r"C:\CCaps\ccaps.exe");
+        let cmd = background_command_line(exe, &codes(&["de"]));
+        assert!(cmd.contains("-led num"), "got: {}", cmd);
+        // Restore default
+        layout_indicator::set_active_leds(0);
+    }
+
+    #[test]
+    fn test_led_option_omitted_for_default() {
+        // Default (no LEDs) should not produce -led in the command line
+        layout_indicator::set_active_leds(0);
+        let exe = Path::new(r"C:\CCaps\ccaps.exe");
+        let cmd = background_command_line(exe, &codes(&["de"]));
+        assert!(!cmd.contains("-led"), "got: {}", cmd);
     }
 
     #[test]

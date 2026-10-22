@@ -56,7 +56,7 @@ pub fn header(version: &str, layouts: &[(String, String)], current: Option<usize
         [
             "",
             "Shift + Caps Lock    toggle Caps Lock",
-            "Scroll Lock LED      OFF = English, ON = another layout",
+            "LED indicator        OFF = English, ON = another layout",
             "",
             "Log, one line per Caps Lock press:",
             "  Switched            the window applied the layout request",
